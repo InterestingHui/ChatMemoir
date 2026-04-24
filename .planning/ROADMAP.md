@@ -13,7 +13,7 @@ Fix WeChatMsg's database decryption for WeChat 4.x (tested against 4.1.8.29) by 
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] **Phase 1: Regex Key Extraction** - Replace YARA with Python regex WCDB hex pattern scanning, add diagnostic logging, keep YARA as fallback
-- [ ] **Phase 2: User Info from Decrypted DB** - Read nickname/phone/account from decrypted databases instead of memory offsets
+- [ ] **Phase 2: User Info from Decrypted DB** - Read nickname from decrypted contact.db instead of memory offsets
 - [ ] **Phase 3: Pipeline Validation and Code Health** - End-to-end pipeline test on 4.1.8.29 plus fix multiprocessing and handle leak bugs
 
 ## Phase Details
@@ -35,18 +35,17 @@ Plans:
 - [x] 01-02-PLAN.md — Apply same regex key extraction changes to wxinfo.py (duplicate file sync)
 
 ### Phase 2: User Info from Decrypted DB
-**Goal**: Users see their own nickname, phone number, and account name populated from decrypted database content
+**Goal**: Users see their own nickname populated from the decrypted contact database instead of an empty string
 **Depends on**: Phase 1
 **Requirements**: INFO-01, INFO-02, INFO-03
 **Success Criteria** (what must be TRUE):
   1. User's nickname is populated from decrypted database (not empty and not garbage from memory offsets)
   2. User's phone number is populated from decrypted database
   3. User's account name (wxid or alias) is populated from decrypted database
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md — Query nickname from decrypted contact/contact.db after decrypt_db_files(), fix info.json ordering bug
 
 ### Phase 3: Pipeline Validation and Code Health
 **Goal**: The complete decrypt-to-export pipeline works end-to-end on WeChat 4.1.8.29, and latent code bugs are fixed
@@ -71,5 +70,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Regex Key Extraction | 0/2 | Not started | - |
-| 2. User Info from Decrypted DB | 0/2 | Not started | - |
+| 2. User Info from Decrypted DB | 0/1 | Not started | - |
 | 3. Pipeline Validation and Code Health | 0/2 | Not started | - |
