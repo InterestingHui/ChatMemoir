@@ -31,8 +31,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Add regex-based WCDB hex key extraction to wx_info_v4.py (regex-first, YARA fallback, diagnostic logging, multi-file verification, remove if-True-or bypass)
-- [ ] 01-02-PLAN.md — Apply same regex key extraction changes to wxinfo.py (duplicate file sync)
+- [x] 01-01-PLAN.md — Add regex-based WCDB hex key extraction to wx_info_v4.py (regex-first, YARA fallback, diagnostic logging, multi-file verification, remove if-True-or bypass)
+- [x] 01-02-PLAN.md — Apply same regex key extraction changes to wxinfo.py (duplicate file sync)
 
 ### Phase 2: User Info from Decrypted DB
 **Goal**: Users see their own nickname, phone number, and account name populated from decrypted database content
