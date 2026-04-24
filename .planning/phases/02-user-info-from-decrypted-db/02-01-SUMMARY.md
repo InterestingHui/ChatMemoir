@@ -32,7 +32,8 @@ key-decisions:
 patterns-established:
   - "Post-decrypt DB query pattern: decrypt_db_files() -> sqlite3 query -> update Me() -> write info.json"
 
-requirements-completed: [INFO-01, INFO-02, INFO-03]
+requirements-completed: [INFO-01]
+requirements-deferred: [INFO-02, INFO-03]  # Deferred per CONTEXT.md D-03: export only uses wxid and name
 
 # Metrics
 duration: 4min

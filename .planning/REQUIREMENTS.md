@@ -16,8 +16,8 @@
 ### User Info
 
 - [ ] **INFO-01**: 从解密后的数据库读取用户昵称，替代内存偏移扫描
-- [ ] **INFO-02**: 从解密后的数据库读取手机号，替代内存偏移扫描
-- [ ] **INFO-03**: 从解密后的数据库读取账号名，替代内存偏移扫描
+- [ ] ~~**INFO-02**: 从解密后的数据库读取手机号，替代内存偏移扫描~~ — Deferred: export pipeline only uses wxid and name (per D-03)
+- [ ] ~~**INFO-03**: 从解密后的数据库读取账号名，替代内存偏移扫描~~ — Deferred: wxid already from memory scan, not needed from DB (per D-03)
 
 ### Pipeline
 
@@ -63,8 +63,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | KEY-04 | Phase 1 | Pending |
 | KEY-05 | Phase 1 | Pending |
 | INFO-01 | Phase 2 | Pending |
-| INFO-02 | Phase 2 | Pending |
-| INFO-03 | Phase 2 | Pending |
+| INFO-02 | Phase 2 | Deferred (per D-03) |
+| INFO-03 | Phase 2 | Deferred (per D-03) |
 | PIPE-01 | Phase 3 | Pending |
 | PIPE-02 | Phase 3 | Pending |
 | PIPE-03 | Phase 3 | Pending |

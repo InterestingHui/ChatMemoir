@@ -40,12 +40,12 @@ Plans:
 **Requirements**: INFO-01, INFO-02, INFO-03
 **Success Criteria** (what must be TRUE):
   1. User's nickname is populated from decrypted database (not empty and not garbage from memory offsets)
-  2. User's phone number is populated from decrypted database
-  3. User's account name (wxid or alias) is populated from decrypted database
+  2. ~~User's phone number is populated from decrypted database~~ — Deferred: export pipeline only uses wxid and name (per D-03)
+  3. ~~User's account name (wxid or alias) is populated from decrypted database~~ — Deferred: wxid already populated from memory scan, not needed from DB (per D-03)
 **Plans**: 1 plan
 
 Plans:
-- [ ] 02-01-PLAN.md — Query nickname from decrypted contact/contact.db after decrypt_db_files(), fix info.json ordering bug
+- [x] 02-01-PLAN.md — Query nickname from decrypted contact/contact.db after decrypt_db_files(), fix info.json ordering bug
 
 ### Phase 3: Pipeline Validation and Code Health
 **Goal**: The complete decrypt-to-export pipeline works end-to-end on WeChat 4.1.8.29, and latent code bugs are fixed
