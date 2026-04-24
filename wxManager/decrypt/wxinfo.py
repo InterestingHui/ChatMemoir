@@ -48,8 +48,6 @@ ROUND_COUNT = 256000
 PAGE_SIZE = 4096
 SALT_SIZE = 16
 
-finish_flag = False
-
 logger = logging.getLogger(__name__)
 
 
@@ -248,9 +246,8 @@ def read_string_from_pid(pid: int, addr: int, size: int):
         return ''
 
 
-def is_ok(passphrase, buf):
-    global finish_flag
-    if finish_flag:
+def is_ok(passphrase, buf, shared_flag=None):
+    if shared_flag is not None and shared_flag.value:
         return False
     # 获取文件开头的 salt
     salt = buf[:SALT_SIZE]
@@ -274,7 +271,9 @@ def is_ok(passphrase, buf):
     hash_mac_end_offset = hash_mac_start_offset + len(hash_mac)
     if hash_mac == buf[hash_mac_start_offset:hash_mac_end_offset]:
         print(f"[v] found key at 0x{start:x}")
-        finish_flag = True
+        if shared_flag is not None:
+            with shared_flag.get_lock():
+                shared_flag.value = True
         return True
     return False
 
@@ -286,11 +285,10 @@ def get_version(pid):
     return version
 
 
-def check_chunk(chunk, buf):
-    global finish_flag
-    if finish_flag:
+def check_chunk(chunk, buf, shared_flag=None):
+    if shared_flag is not None and shared_flag.value:
         return False
-    if is_ok(chunk, buf):
+    if is_ok(chunk, buf, shared_flag):
         return chunk
     return False
 
@@ -310,8 +308,9 @@ def verify_key(key: bytes, buffer: bytes, flag, result):
 
 
 def get_key_(keys, buf):
+    shared_flag = multiprocessing.Value('b', False)
     pool = multiprocessing.Pool(processes=multiprocessing.cpu_count() // 2)
-    results = pool.starmap(check_chunk, ((key, buf) for key in keys))
+    results = pool.starmap(check_chunk, ((key, buf, shared_flag) for key in keys))
     pool.close()
     pool.join()
 
