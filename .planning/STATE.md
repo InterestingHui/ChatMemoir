@@ -1,0 +1,61 @@
+# Project State
+
+## Project Reference
+
+See: .planning/PROJECT.md (updated 2026-04-23)
+
+**Core value:** Let users complete the full decrypt-query-export pipeline on WeChat 4.x (key not None, user info populated, exports generated)
+**Current focus:** Phase 1 - Regex Key Extraction
+
+## Current Position
+
+Phase: 1 of 3 (Regex Key Extraction)
+Plan: 0 of 0 in current phase
+Status: Ready to plan
+Last activity: 2026-04-23 -- Roadmap created
+
+Progress: [░░░░░░░░░░] 0%
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed: 0
+- Average duration: -
+- Total execution time: 0 hours
+
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| - | - | - | - |
+
+**Recent Trend:**
+- Last 5 plans: -
+- Trend: -
+
+*Updated after each plan completion*
+
+## Accumulated Context
+
+### Decisions
+
+Decisions are logged in PROJECT.md Key Decisions table.
+Recent decisions affecting current work:
+
+- [Init]: Regex-based WCDB hex pattern scanning chosen over YARA rule updates as primary key extraction method (proven approach from ylytdeng/wechat-decrypt)
+- [Init]: User info will be read from decrypted databases instead of fixing memory offset scanning
+
+### Pending Todos
+
+None yet.
+
+### Blockers/Concerns
+
+- [Phase 2]: Exact database tables/columns for user's own nickname, phone, account in v4 schema need confirmation during planning. Check `wxManager/db_v4/contact.py` and `session.py`.
+- [Phase 1]: Regex pattern `x'<64hex><32hex>'` proven on WeChat 4.0.x through 4.1.x per ylytdeng/wechat-decrypt, but should be empirically confirmed against 4.1.8.29 during testing.
+
+## Session Continuity
+
+Last session: 2026-04-23
+Stopped at: Roadmap created, ready for Phase 1 planning
+Resume file: None
