@@ -498,64 +498,67 @@ def get_nickname(pid):
     if not process_handle:
         print(f"无法打开进程 {pid}")
         return {}
-    process_infos = get_memory_regions(process_handle)
-    # 加载规则
-    r'''$a = /(.{16}[\x00-\x20]\x00{7}(\x0f|\x1f)\x00{7}){2}.{16}[\x01-\x20]\x00{7}(\x0f|\x1f)\x00{7}[0-9]{11}\x00{5}\x0b\x00{7}\x0f\x00{7}.{25}\x00{7}(\x3f|\x2f|\x1f|\x0f)\x00{7}/s'''
-    rules_v4_phone = r'''
-    rule GetPhoneNumberOffset {
-        strings:
-            $a = /[\x01-\x20]\x00{7}(\x0f|\x1f)\x00{7}[0-9]{11}\x00{5}\x0b\x00{7}\x0f\x00{7}/
-        condition:
-            $a
-    }
-    '''
-    nick_name = ''
-    phone = ''
-    account_name = ''
-    rules = yara.compile(source=rules_v4_phone)
-    for base_address, region_size in process_infos:
-        memory = read_process_memory(process_handle, base_address, region_size)
-        # 定义目标数据（如内存或文件内容）
-        target_data = memory  # 二进制数据
-        if not memory:
-            continue
-        # if not (b'db_storage' in target_data or b'USER_KEYINFO' in target_data):
-        #     continue
-        # if not (b'-----BEGIN PUBLIC KEY-----' in target_data):
-        #     continue
-        matches = rules.match(data=target_data)
-        if matches:
-            # 输出匹配结果
-            for match in matches:
-                rule_name = match.rule
-                if rule_name == 'GetPhoneNumberOffset':
-                    for string in match.strings:
-                        instance = string.instances[0]
-                        offset, content = instance.offset, instance.matched_data
-                        phone_addr = offset + 0x10
-                        phone = read_string(target_data, phone_addr, 11)
+    try:
+        process_infos = get_memory_regions(process_handle)
+        # 加载规则
+        r'''$a = /(.{16}[\x00-\x20]\x00{7}(\x0f|\x1f)\x00{7}){2}.{16}[\x01-\x20]\x00{7}(\x0f|\x1f)\x00{7}[0-9]{11}\x00{5}\x0b\x00{7}\x0f\x00{7}.{25}\x00{7}(\x3f|\x2f|\x1f|\x0f)\x00{7}/s'''
+        rules_v4_phone = r'''
+        rule GetPhoneNumberOffset {
+            strings:
+                $a = /[\x01-\x20]\x00{7}(\x0f|\x1f)\x00{7}[0-9]{11}\x00{5}\x0b\x00{7}\x0f\x00{7}/
+            condition:
+                $a
+        }
+        '''
+        nick_name = ''
+        phone = ''
+        account_name = ''
+        rules = yara.compile(source=rules_v4_phone)
+        for base_address, region_size in process_infos:
+            memory = read_process_memory(process_handle, base_address, region_size)
+            # 定义目标数据（如内存或文件内容）
+            target_data = memory  # 二进制数据
+            if not memory:
+                continue
+            # if not (b'db_storage' in target_data or b'USER_KEYINFO' in target_data):
+            #     continue
+            # if not (b'-----BEGIN PUBLIC KEY-----' in target_data):
+            #     continue
+            matches = rules.match(data=target_data)
+            if matches:
+                # 输出匹配结果
+                for match in matches:
+                    rule_name = match.rule
+                    if rule_name == 'GetPhoneNumberOffset':
+                        for string in match.strings:
+                            instance = string.instances[0]
+                            offset, content = instance.offset, instance.matched_data
+                            phone_addr = offset + 0x10
+                            phone = read_string(target_data, phone_addr, 11)
 
-                        # 提取前 8 个字节
-                        data_slice = target_data[offset:offset + 8]
-                        # 使用 struct.unpack() 将字节转换为 u64，'<Q' 表示小端字节序的 8 字节无符号整数
-                        nick_name_length = struct.unpack('<Q', data_slice)[0]
-                        # print('nick_name_length', nick_name_length)
-                        nick_name = read_string(target_data, phone_addr - 0x20, nick_name_length)
-                        a = target_data[phone_addr - 0x60:phone_addr + 0x50]
-                        account_name_length = read_num(target_data, phone_addr - 0x30, 8)
-                        # print('account_name_length', account_name_length)
-                        account_name = read_string(target_data, phone_addr - 0x40, account_name_length)
-                        # with open('a.bin', 'wb') as f:
-                        #     f.write(target_data)
-                        if not account_name:
-                            addr = read_num(target_data, phone_addr - 0x40, 8)
-                            # print(hex(addr))
-                            account_name = read_string_from_pid(pid, addr, account_name_length)
-    return {
-        'nick_name': nick_name,
-        'phone': phone,
-        'account_name': account_name
-    }
+                            # 提取前 8 个字节
+                            data_slice = target_data[offset:offset + 8]
+                            # 使用 struct.unpack() 将字节转换为 u64，'<Q' 表示小端字节序的 8 字节无符号整数
+                            nick_name_length = struct.unpack('<Q', data_slice)[0]
+                            # print('nick_name_length', nick_name_length)
+                            nick_name = read_string(target_data, phone_addr - 0x20, nick_name_length)
+                            a = target_data[phone_addr - 0x60:phone_addr + 0x50]
+                            account_name_length = read_num(target_data, phone_addr - 0x30, 8)
+                            # print('account_name_length', account_name_length)
+                            account_name = read_string(target_data, phone_addr - 0x40, account_name_length)
+                            # with open('a.bin', 'wb') as f:
+                            #     f.write(target_data)
+                            if not account_name:
+                                addr = read_num(target_data, phone_addr - 0x40, 8)
+                                # print(hex(addr))
+                                account_name = read_string_from_pid(pid, addr, account_name_length)
+        return {
+            'nick_name': nick_name,
+            'phone': phone,
+            'account_name': account_name
+        }
+    finally:
+        CloseHandle(process_handle)
 
 
 def worker(pid, queue):
