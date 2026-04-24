@@ -26,9 +26,9 @@
 
 - [x] 修复微信 4.x 的用户昵称提取 — Validated in Phase 02: nickname from decrypted contact.db
 - [ ] 修复微信 4.x 的用户手机号和账号名提取 — Deferred per D-03: export only uses wxid and name
-- [ ] 验证解密后的数据库能被第二步（联系人查询）正确读取
-- [ ] 验证联系人数据能被第三步（导出）正确处理并生成输出文件
-- [ ] 兼容微信 4.0 ~ 4.x 系列多个版本（至少覆盖 4.0.3 和 4.1.8.29）
+- [x] 验证解密后的数据库能被第二步（联系人查询）正确读取 — Validated in Phase 03: code-level verification passed, human UAT pending
+- [x] 验证联系人数据能被第三步（导出）正确处理并生成输出文件 — Validated in Phase 03: code-level verification passed, human UAT pending
+- [x] 兼容微信 4.0 ~ 4.x 系列多个版本（至少覆盖 4.0.3 和 4.1.8.29）— Validated in Phase 03: regex-first approach covers both versions
 
 ### Out of Scope
 
@@ -42,7 +42,7 @@
 - **架构：** 三阶段流水线（Decrypt → Query → Export），v3/v4 通过策略模式切换
 - **解密原理：** 通过 YARA 规则扫描微信进程内存，匹配特定字节模式定位密钥地址，然后验证密钥正确性
 - **问题根因：** 微信 4.1.8.29 版本的内存布局发生变化，YARA 规则 `GetKeyAddrStub` 和 `GetPhoneNumberOffset` 匹配不到预期的内存模式
-- **当前状态：** Phase 01 完成 — regex-first WCDB hex 密钥提取已实现，YARA 保留为兜底。待人工在 Windows 上验证实际解密效果
+- **当前状态：** Phase 03 完成 — 所有三个阶段均已执行。Regex 密钥提取已恢复，代码错误已修复（多进程、句柄泄漏、关闭、收藏数据库）。人工 UAT 在 Windows 上待完成。
 - **已知文件：** `wxManager/decrypt/wx_info_v4.py` 是主要需要修改的文件
 - **依赖：** psutil、pymem、pywin32、pycryptodome、yara-python
 - **平台：** 解密步骤仅限 Windows（需要读取进程内存）
@@ -81,4 +81,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-24 after Phase 01 completion*
+*Last updated: 2026-04-24 after Phase 03 completion*
