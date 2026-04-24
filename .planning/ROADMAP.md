@@ -28,12 +28,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Key verification via HMAC-SHA512 passes for extracted keys against actual encrypted DB files
   4. When key extraction fails, console/log shows diagnostic message explaining what was tried and what failed (not silent None)
   5. YARA-based extraction still runs as fallback when regex finds no candidates
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
-- [ ] 01-03: TBD
+- [ ] 01-01-PLAN.md — Add regex-based WCDB hex key extraction to wx_info_v4.py (regex-first, YARA fallback, diagnostic logging, multi-file verification, remove if-True-or bypass)
+- [ ] 01-02-PLAN.md — Apply same regex key extraction changes to wxinfo.py (duplicate file sync)
 
 ### Phase 2: User Info from Decrypted DB
 **Goal**: Users see their own nickname, phone number, and account name populated from decrypted database content
@@ -71,6 +70,6 @@ Phases execute in numeric order: 1 -> 2 -> 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Regex Key Extraction | 0/3 | Not started | - |
+| 1. Regex Key Extraction | 0/2 | Not started | - |
 | 2. User Info from Decrypted DB | 0/2 | Not started | - |
 | 3. Pipeline Validation and Code Health | 0/2 | Not started | - |
