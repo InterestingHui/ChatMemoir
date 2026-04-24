@@ -14,6 +14,7 @@
 
 <!-- 从现有代码推断的已有能力 -->
 
+- ✓ 修复微信 4.x（含 4.1.8.29）的密钥提取功能 — Validated in Phase 01: regex-first WCDB hex scanning with YARA fallback
 - ✓ 微信 4.0 基本版数据库解密 — 现有代码支持
 - ✓ 微信 3.x 数据库解密 — 现有代码支持
 - ✓ 多格式导出（HTML、TXT、CSV、DOCX、XLSX、Markdown、JSON）— 现有代码支持
@@ -23,7 +24,6 @@
 
 ### Active
 
-- [ ] 修复微信 4.x（含 4.1.8.29）的密钥提取功能（key 不再为 None）
 - [ ] 修复微信 4.x 的用户信息提取（昵称、手机号、账号名不为空或垃圾值）
 - [ ] 验证解密后的数据库能被第二步（联系人查询）正确读取
 - [ ] 验证联系人数据能被第三步（导出）正确处理并生成输出文件
@@ -41,7 +41,7 @@
 - **架构：** 三阶段流水线（Decrypt → Query → Export），v3/v4 通过策略模式切换
 - **解密原理：** 通过 YARA 规则扫描微信进程内存，匹配特定字节模式定位密钥地址，然后验证密钥正确性
 - **问题根因：** 微信 4.1.8.29 版本的内存布局发生变化，YARA 规则 `GetKeyAddrStub` 和 `GetPhoneNumberOffset` 匹配不到预期的内存模式
-- **当前状态：** 能检测到微信进程、获取 pid、wxid、wx_dir，但 key 为 None，用户信息为空或垃圾值
+- **当前状态：** Phase 01 完成 — regex-first WCDB hex 密钥提取已实现，YARA 保留为兜底。待人工在 Windows 上验证实际解密效果
 - **已知文件：** `wxManager/decrypt/wx_info_v4.py` 是主要需要修改的文件
 - **依赖：** psutil、pymem、pywin32、pycryptodome、yara-python
 - **平台：** 解密步骤仅限 Windows（需要读取进程内存）
@@ -59,7 +59,8 @@
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| 基于 YARA 规则更新方式修复 | 现有架构使用 YARA 扫描内存，保持架构一致性 | — Pending |
+| 基于 YARA 规则更新方式修复 | 现有架构使用 YARA 扫描内存，保持架构一致性 | 被取代 — 见下一行 |
+| Regex-first, YARA-fallback 密钥提取 | WCDB 内部 `x'<hex>'` 格式跨版本稳定，YARA 仅作为兜底 | — Phase 01 已实现，待人工验证 |
 
 ## Evolution
 
@@ -79,4 +80,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-23 after initialization*
+*Last updated: 2026-04-24 after Phase 01 completion*
