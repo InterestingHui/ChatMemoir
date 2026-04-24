@@ -24,7 +24,8 @@
 
 ### Active
 
-- [ ] 修复微信 4.x 的用户信息提取（昵称、手机号、账号名不为空或垃圾值）
+- [x] 修复微信 4.x 的用户昵称提取 — Validated in Phase 02: nickname from decrypted contact.db
+- [ ] 修复微信 4.x 的用户手机号和账号名提取 — Deferred per D-03: export only uses wxid and name
 - [ ] 验证解密后的数据库能被第二步（联系人查询）正确读取
 - [ ] 验证联系人数据能被第三步（导出）正确处理并生成输出文件
 - [ ] 兼容微信 4.0 ~ 4.x 系列多个版本（至少覆盖 4.0.3 和 4.1.8.29）
