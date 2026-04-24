@@ -105,10 +105,15 @@ class DataBaseV4(DataBaseInterface):
         return flag
 
     def close(self):
-        pass
-
-        # self.head_image_db.close()
-        # self.contact_db.close()
+        self.contact_db.close()
+        self.head_image_db.close()
+        self.session_db.close()
+        self.message_db.close()
+        self.biz_message_db.close()
+        self.media_db.close()
+        self.hardlink_db.close()
+        self.emotion_db.close()
+        self.audio2text_db.close()
 
     def get_session(self):
         """
@@ -447,6 +452,8 @@ class DataBaseV4(DataBaseInterface):
     # 联系人结束
 
     def get_favorite_items(self, time_range):
+        if not hasattr(self, 'favorite_db') or self.favorite_db is None:
+            return []
         return self.favorite_db.get_items(time_range)
 
     def merge(self, db_dir):

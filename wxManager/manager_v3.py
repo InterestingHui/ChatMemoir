@@ -662,6 +662,8 @@ class DataBaseV3(DataBaseInterface):
     # 联系人结束
 
     def get_favorite_items(self, time_range):
+        if not hasattr(self, 'favorite_db') or self.favorite_db is None:
+            return []
         return self.favorite_db.get_items(time_range)
 
     def merge(self, db_dir):
