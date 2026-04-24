@@ -59,8 +59,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Restore Phase 1 regex key extraction via cherry-pick + fix finish_flag multiprocessing + fix handle leaks
-- [ ] 03-02-PLAN.md — Fix DataBaseV4.close() and favorite_db guards + generate HUMAN-UAT validation checklist
+- [x] 03-01-PLAN.md — Restore Phase 1 regex key extraction via cherry-pick + fix finish_flag multiprocessing + fix handle leaks
+- [x] 03-02-PLAN.md — Fix DataBaseV4.close() and favorite_db guards + generate HUMAN-UAT validation checklist
 
 ## Progress
 
