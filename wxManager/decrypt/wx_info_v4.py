@@ -24,6 +24,8 @@ import pymem
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA512
 import yara
+import re
+import logging
 
 from wxManager.decrypt.common import WeChatInfo
 from wxManager.decrypt.common import get_version
@@ -45,6 +47,8 @@ PAGE_SIZE = 4096
 SALT_SIZE = 16
 
 finish_flag = False
+
+logger = logging.getLogger(__name__)
 
 
 # 定义 MEMORY_BASIC_INFORMATION 结构
@@ -285,6 +289,103 @@ def get_key_(keys, buf):
     return None
 
 
+def collect_db_salts(wx_dir):
+    """Read the first 16 bytes (salt) from each .db file under wx_dir."""
+    salt_to_path = {}
+    if not wx_dir or not os.path.isdir(wx_dir):
+        return salt_to_path
+    for root, dirs, files in os.walk(wx_dir):
+        for fname in files:
+            if fname.endswith('.db'):
+                fpath = os.path.join(root, fname)
+                try:
+                    with open(fpath, 'rb') as f:
+                        salt = f.read(SALT_SIZE)
+                    if salt and len(salt) == SALT_SIZE:
+                        salt_to_path[salt.hex()] = fpath
+                except (OSError, IOError):
+                    continue
+    logger.info(f"[collect_db_salts] Found {len(salt_to_path)} .db files with valid salts under {wx_dir}")
+    return salt_to_path
+
+
+def _verify_key_stdlib(key: bytes, buf: bytes) -> bool:
+    """Verify key using stdlib hashlib + hmac (avoids pycryptodome dependency in regex path)."""
+    import hashlib
+    salt = buf[:SALT_SIZE]
+    mac_salt = bytes(x ^ 0x3a for x in salt)
+    new_key = hashlib.pbkdf2_hmac('sha512', key, salt, ROUND_COUNT, dklen=KEY_SIZE)
+    mac_key = hashlib.pbkdf2_hmac('sha512', new_key, mac_salt, 2, dklen=KEY_SIZE)
+    reserve = IV_SIZE + HMAC_SHA512_SIZE
+    reserve = ((reserve + AES_BLOCK_SIZE - 1) // AES_BLOCK_SIZE) * AES_BLOCK_SIZE
+    start = SALT_SIZE
+    end = PAGE_SIZE
+    mac = hmac.new(mac_key, buf[start:end - reserve + IV_SIZE], hashlib.sha512)
+    mac.update(struct.pack('<I', 1))
+    hash_mac = mac.digest()
+    hash_mac_start_offset = end - reserve + IV_SIZE
+    hash_mac_end_offset = hash_mac_start_offset + len(hash_mac)
+    return hash_mac == buf[hash_mac_start_offset:hash_mac_end_offset]
+
+
+def regex_scan_keys(pid, process_handle, wx_dir):
+    """
+    Scan process memory for WCDB hex key cache patterns (x'<key><salt>').
+    Returns verified key as hex string, or None if not found.
+    """
+    import re as _re
+    hex_re = _re.compile(b"x'([0-9a-fA-F]{64,192})'")
+
+    # Step A: Collect salt-to-DB-file mapping from disk
+    salt_to_path = collect_db_salts(wx_dir)
+    if not salt_to_path:
+        logger.warning("[regex_scan_keys] No .db files found with valid salts, cannot verify keys")
+        return None
+
+    # Step B: Scan process memory regions for hex patterns
+    process_infos = get_memory_regions(process_handle)
+    candidates = {}  # salt_hex -> key_hex
+
+    logger.info(f"[regex_scan_keys] Scanning {len(process_infos)} memory regions for WCDB hex patterns")
+    for base_address, region_size in process_infos:
+        memory = read_process_memory(process_handle, base_address, region_size)
+        if not memory:
+            continue
+        for match in hex_re.finditer(memory):
+            hex_str = match.group(1).decode('ascii', errors='ignore')
+            if len(hex_str) >= 96:  # 64 hex key (32 bytes) + 32 hex salt (16 bytes) minimum
+                key_hex = hex_str[:64]
+                salt_hex = hex_str[64:96]
+                if salt_hex in salt_to_path and salt_hex not in candidates:
+                    candidates[salt_hex] = key_hex
+
+    logger.info(f"[regex_scan_keys] Found {len(candidates)} candidate key+salt matches")
+
+    if not candidates:
+        return None
+
+    # Step C: Verify each candidate against its matching DB file
+    for salt_hex, key_hex in candidates.items():
+        db_path = salt_to_path[salt_hex]
+        try:
+            with open(db_path, 'rb') as f:
+                buf = f.read(PAGE_SIZE)
+            if len(buf) < PAGE_SIZE:
+                logger.warning(f"[regex_scan_keys] DB file too small: {db_path}")
+                continue
+            key_bytes = bytes.fromhex(key_hex)
+            if _verify_key_stdlib(key_bytes, buf):
+                logger.info(f"[regex_scan_keys] Key verified successfully via regex scan (matched {db_path})")
+                return key_hex
+            else:
+                logger.info(f"[regex_scan_keys] Candidate key did not verify against {db_path}")
+        except Exception as e:
+            logger.warning(f"[regex_scan_keys] Error verifying against {db_path}: {e}")
+
+    logger.warning("[regex_scan_keys] All candidates failed verification")
+    return None
+
+
 def get_key_inner(pid, process_infos):
     """
     扫描可能为key的内存
@@ -327,15 +428,17 @@ def get_key_inner(pid, process_infos):
                         offset, content = instance.offset, instance.matched_data
                         addr = read_num(target_data, offset, 8)
                         pre_addresses.append(addr)
+    logger.info(f"[get_key_inner] Found {len(pre_addresses)} candidate addresses from YARA")
     keys = []
     key_set = set()
     for pre_address in pre_addresses:
-        if True or any([base_address <= pre_address <= base_address + region_size - KEY_SIZE for base_address, region_size in
+        if any([base_address <= pre_address <= base_address + region_size - KEY_SIZE for base_address, region_size in
                 process_infos]):
             key = read_bytes_from_pid(pid, pre_address, 32)
             if key not in key_set:
                 keys.append(key)
                 key_set.add(key)
+    logger.info(f"[get_key_inner] Collected {len(keys)} unique candidate keys")
     return keys
 
 
@@ -465,29 +568,64 @@ def dump_wechat_info_v4(pid) -> WeChatInfo | None:
     wechat_info = WeChatInfo()
     wechat_info.pid = pid
     wechat_info.version = get_version(pid)
+    logger.info(f"[dump_wechat_info_v4] Starting extraction for WeChat {wechat_info.version}, PID={pid}")
+
     process_handle = open_process(pid)
     if not process_handle:
-        print(f"无法打开进程 {pid}")
+        logger.error(f"[dump_wechat_info_v4] Cannot open process {pid}")
+        print(f"Cannot open WeChat process (PID {pid}). Please run as administrator.")
         return wechat_info
+
     queue = multiprocessing.Queue()
     process = multiprocessing.Process(target=worker, args=(pid, queue))
-
     process.start()
 
     wechat_info.wx_dir = get_wx_dir(process_handle)
-    # print(wx_dir_cnt)
     if not wechat_info.wx_dir:
+        logger.error("[dump_wechat_info_v4] Could not find WeChat data directory")
+        ctypes.windll.kernel32.CloseHandle(process_handle)
+        process.join()
         return wechat_info
-    db_file_path = os.path.join(wechat_info.wx_dir, 'favorite', 'favorite_fts.db')
-    if not os.path.exists(db_file_path):
-        db_file_path = os.path.join(wechat_info.wx_dir, 'head_image', 'head_image.db')
-    with open(db_file_path, 'rb') as f:
-        buf = f.read()
-    wechat_info.key = get_key(pid, process_handle, buf)
+
+    # Try regex-based WCDB hex scan first (more robust across versions).
+    # NOTE: wx_dir already ends with db_storage\ from get_wx_dir, so pass it directly.
+    wechat_info.key = regex_scan_keys(pid, process_handle, wechat_info.wx_dir)
+    if wechat_info.key:
+        logger.info("[dump_wechat_info_v4] Key found via regex scan")
+    else:
+        # Fall back to YARA-based extraction
+        logger.info("[dump_wechat_info_v4] Regex scan found no key, falling back to YARA")
+        # Find a valid DB file for YARA verification
+        db_file_path = ''
+        for candidate in ['favorite/favorite_fts.db', 'head_image/head_image.db', 'session/session.db', 'contact/contact.db', 'message/message_0.db']:
+            candidate_path = os.path.join(wechat_info.wx_dir, candidate)
+            if os.path.exists(candidate_path) and os.path.getsize(candidate_path) >= PAGE_SIZE:
+                db_file_path = candidate_path
+                break
+        if not db_file_path:
+            for root, dirs, files in os.walk(wechat_info.wx_dir):
+                for fname in files:
+                    if fname.endswith('.db'):
+                        fpath = os.path.join(root, fname)
+                        if os.path.getsize(fpath) >= PAGE_SIZE:
+                            db_file_path = fpath
+                            break
+                if db_file_path:
+                    break
+        if db_file_path:
+            logger.info(f"[dump_wechat_info_v4] Using {db_file_path} for YARA verification")
+            with open(db_file_path, 'rb') as f:
+                buf = f.read()
+            wechat_info.key = get_key(pid, process_handle, buf)
+            if wechat_info.key:
+                logger.info("[dump_wechat_info_v4] Key found via YARA fallback")
+        else:
+            logger.error("[dump_wechat_info_v4] No .db file found for YARA verification")
+
     ctypes.windll.kernel32.CloseHandle(process_handle)
     wechat_info.wxid = '_'.join(wechat_info.wx_dir.split('\\')[-3].split('_')[0:-1])
     wechat_info.wx_dir = '\\'.join(wechat_info.wx_dir.split('\\')[:-2])
-    process.join()  # 等待子进程完成
+    process.join()
     if not queue.empty():
         nickname_info = queue.get()
         wechat_info.nick_name = nickname_info.get('nick_name', '')
@@ -495,8 +633,13 @@ def dump_wechat_info_v4(pid) -> WeChatInfo | None:
         wechat_info.account_name = nickname_info.get('account_name', '')
     if not wechat_info.key:
         wechat_info.errcode = 404
+        logger.error(f"[dump_wechat_info_v4] Key extraction FAILED for WeChat {wechat_info.version}")
+        print(f"Key extraction failed. WeChat version: {wechat_info.version}")
+        print("Please ensure WeChat is running and logged in.")
+        print(f"Data directory: {wechat_info.wx_dir}")
     else:
         wechat_info.errcode = 200
+        logger.info(f"[dump_wechat_info_v4] Key extraction succeeded")
     return wechat_info
 
 
