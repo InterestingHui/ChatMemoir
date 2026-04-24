@@ -56,11 +56,11 @@ Plans:
   2. Contact data flows through to the export step and generates at least one output file (e.g., HTML or TXT) without errors
   3. The full three-step pipeline (decrypt, query contacts, export messages) runs on WeChat 4.1.8.29 data from start to finish without unhandled exceptions
   4. Process handles are properly closed after decryption (no handle leaks visible in Task Manager across repeated runs)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md — Restore Phase 1 regex key extraction via cherry-pick + fix finish_flag multiprocessing + fix handle leaks
+- [ ] 03-02-PLAN.md — Fix DataBaseV4.close() and favorite_db guards + generate HUMAN-UAT validation checklist
 
 ## Progress
 
