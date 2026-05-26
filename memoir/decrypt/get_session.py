@@ -10,7 +10,7 @@ from win32com.client import Dispatch
 import psutil
 import pymem.process
 
-from memoir.decrypt.session_info_v4 import dump_session_info_v4
+from memoir.decrypt.session_v4 import dump_session_info_v4
 from memoir.decrypt import SessionInfo
 from memoir.decrypt.common import get_version
 

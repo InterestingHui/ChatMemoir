@@ -12,8 +12,8 @@ from typing import List
 
 import psutil
 
-from memoir.decrypt.session_info_v3 import dump_session_info_v3
-from memoir.decrypt.session_info_v4 import dump_session_info_v4
+from memoir.decrypt.session_v3 import dump_session_info_v3
+from memoir.decrypt.session_v4 import dump_session_info_v4
 from memoir.decrypt.common import SessionInfo
 
 
