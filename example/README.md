@@ -1,4 +1,4 @@
-## wxManager使用教程
+## memoir使用教程
 
 ## 1、解析数据
 
@@ -28,7 +28,7 @@ from multiprocessing import freeze_support
 
 from exporter.config import FileType
 from exporter import HtmlExporter, TxtExporter, AiTxtExporter, DocxExporter, MarkdownExporter, ExcelExporter
-from wxManager import DatabaseConnection, MessageType
+from memoir import ArchiveConnection, MessageType
 
 
 def export():
@@ -40,7 +40,7 @@ def export():
     wxid = 'wxid_00112233'  # 要导出好友的wxid
     output_dir = './data/'  # 输出文件夹
 
-    conn = DatabaseConnection(db_dir, db_version)  # 创建数据库连接
+    conn = ArchiveConnection(db_dir, db_version)  # 创建数据库连接
     database = conn.get_interface()  # 获取数据库接口
 
     contact = database.get_contact_by_username(wxid)  # 查找某个联系人
