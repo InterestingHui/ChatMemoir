@@ -3,25 +3,25 @@
 <h1 align="center">我的数据我做主</h1>
 <div align="center">
     <a href="https://github.com/LC044/WeChatMsg/stargazers">
-        <img src="https://img.shields.io/github/stars/LC044/WeChatMsg.svg" />
+        <img src="https://img.shields.io/github/stars/LC044/ChatMemoir.svg" />
     </a>
     <a href="https://memotrace.cn/" target="_blank">
-        <img alt="GitHub forks" src="https://img.shields.io/github/forks/LC044/WeChatMsg?color=eb6ea5">
+        <img alt="GitHub forks" src="https://img.shields.io/github/forks/LC044/ChatMemoir?color=eb6ea5">
     </a>
     <a href="https://memotrace.cn/" target="_blank">
-        <img src="https://img.shields.io/badge/WeChat-留痕-blue.svg">
+        <img src="https://img.shields.io/badge/WeChat-ChatMemoir-blue.svg">
     </a>
     <a target="_blank" href="https://memotrace.cn/">
         <img alt="Hits" src="https://hits.b3log.org/LC044/memotrace.svg">
     </a>
     <a href="https://memotrace.cn/" target="_blank">
-        <img src="https://img.shields.io/github/license/LC044/WeChatMsg" />
+        <img src="https://img.shields.io/github/license/LC044/ChatMemoir" />
     </a>
     <a href="https://github.com/LC044/WeChatMsg/releases" target="_blank">
-        <img alt="GitHub release (with filter)" src="https://img.shields.io/github/v/release/LC044/WeChatMsg">
+        <img alt="GitHub release (with filter)" src="https://img.shields.io/github/v/release/LC044/ChatMemoir">
     </a>
     <a href="https://memotrace.cn/" target="_blank">
-        <img alt="GitHub all releases" src="https://img.shields.io/github/downloads/LC044/WeChatMsg/total?color=3eb370">
+        <img alt="GitHub all releases" src="https://img.shields.io/github/downloads/LC044/ChatMemoir/total?color=3eb370">
     </a>
 </div>
 
@@ -39,7 +39,7 @@
         <p style="text-indent:2em;">我深信有意义的不是微信，而是隐藏在对话框背后的一个个<strong>深刻故事</strong>。未来，每个人都能拥有AI的陪伴，而你的数据能够赋予它有关于你过去的珍贵记忆。我希望每个人都有将自己的生活痕迹👨‍👩‍👦👚🥗🏠️🚴🧋⛹️🛌🛀留存的权利，而不是遗忘💀。</p>
         <p style="text-indent:2em;">AI的发展不仅仅是技术的提升，更是情感💞的延续。每一个对话、每一个互动都是生活中独一无二的片段，是真实而动人的情感交流。因此，我希望AI工作者们能够<strong>善用这些自己的数据</strong>，用于培训独特的、属于个体的人工智能。让<strong>个人AI成为生活中的朋友</strong>，能够理解、记录并分享我们的欢笑、泪水和成长。</p>
         <p style="text-indent:2em;">那天，AI不再是高不可攀的存在，而是融入寻常百姓家的一部分。因为<strong>每个人能拥有自己的AI</strong>，将科技的力量融入生活的方方面面。这是一场关于真情实感的革命，一场让技术变得更加人性化的探索，让我们共同见证未来的美好。</p>
-        <p align="center"><strong>所以《留痕》</strong></p>
+        <p align="center"><strong>所以《ChatMemoir》</strong></p>
     </div>
   </div>
 </div>
@@ -65,7 +65,7 @@
 ## 🍉功能
 - [![](https://img.shields.io/badge/MemoTrace-官网-blue)](https://memotrace.cn/) 
 [![](https://img.shields.io/badge/GitHub-black.svg)](https://github.com/LC044/WeChatMsg)
-[![](https://img.shields.io/badge/Gitee-red.svg)](https://gitee.com/lc044/WeChatMsg)
+[![](https://img.shields.io/badge/Gitee-red.svg)](https://gitee.com/lc044/ChatMemoir)
 [![](https://img.shields.io/badge/Download-yellow.svg)](https://memotrace.cn/)
 - 🔒️🔑🔓️Windows本地微信数据库（支持微信4.0）
 - 还原微信聊天界面
@@ -149,13 +149,13 @@
 ---
 > \[!IMPORTANT]
 > 
-> 声明：该项目有且仅有一个目的：“留痕”——我的数据我做主，前提是“我的数据”其次才是“我做主”，禁止任何人以任何形式将其用于任何非法用途，对于使用该程序所造成的任何后果，所有创作者不承担任何责任🙄<br>
+> 声明：该项目有且仅有一个目的：“ChatMemoir”——我的数据我做主，前提是“我的数据”其次才是“我做主”，禁止任何人以任何形式将其用于任何非法用途，对于使用该程序所造成的任何后果，所有创作者不承担任何责任🙄<br>
 > 该软件不能找回删除的聊天记录，任何企图篡改微信聊天数据的想法都是无稽之谈。<br>
 > 本项目所有功能均建立在”前言“的基础之上，基于该项目的所有开发者均不能接受任何有悖于”前言“的功能需求，违者后果自负。<br>
 > 如果该项目侵犯了您或您产品的任何权益，请联系我删除<br>
 > 软件贩子勿扰，违规违法勿扰，二次开发请务必遵守开源协议
 
-[![Star History Chart](https://api.star-history.com/svg?repos=LC044/WeChatMsg&type=Date)](https://star-history.com/?utm_source=bestxtools.com#LC044/WeChatMsg&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=LC044/ChatMemoir&type=Date)](https://star-history.com/?utm_source=bestxtools.com#LC044/ChatMemoir&Date)
 
 # 🤝贡献者
 
@@ -211,6 +211,6 @@
 
 # License
 
-WeChatMsg is licensed under [MIT](./LICENSE).
+ChatMemoir is licensed under [MIT](./LICENSE).
 
 Copyright © 2022-2024 by SiYuan.
