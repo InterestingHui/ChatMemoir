@@ -20,19 +20,19 @@ from memoir.decrypt.common import SessionInfo
 def get_info_v4() -> List[SessionInfo]:
     result_v4 = []
     for process in psutil.process_iter(['name', 'exe', 'pid']):
-        if process.name() == 'Weixin.exe':
-            wechat_base_address = 0
-            for module in process.memory_maps(grouped=False):
-                if module.path and 'Weixin.dll' in module.path:
-                    wechat_base_address = int(module.addr, 16)
-                    break
-            if wechat_base_address == 0:
-                continue
-            pid = process.pid
-            session_legacy = dump_session_info_v4(pid)
-            result_v4.append(
-                session_legacy
-            )
+        name = process.name()
+        if name not in ('Weixin.exe', 'WeChatAppEx.exe'):
+            continue
+        # Verify the process has WeChat modules loaded (requires admin)
+        wechat_base_address = 0
+        for module in process.memory_maps(grouped=False):
+            if module.path and ('Weixin.dll' in module.path or 'WeChatAppEx.exe' in module.path):
+                wechat_base_address = int(module.addr, 16)
+                break
+        if wechat_base_address == 0:
+            continue
+        session_info = dump_session_info_v4(process.pid)
+        result_v4.append(session_info)
     return result_v4
 
 
