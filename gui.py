@@ -17,10 +17,16 @@ from datetime import datetime
 from tkinter import filedialog, messagebox, ttk, scrolledtext
 
 # 获取脚本所在目录，确保 import 正确
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+if not getattr(sys, 'frozen', False):
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# 配置文件路径
-_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.gui_config.json')
+# 配置文件路径（frozen 模式使用 %APPDATA% 可写目录）
+if getattr(sys, 'frozen', False):
+    _CONFIG_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'ChatMemoir')
+    os.makedirs(_CONFIG_DIR, exist_ok=True)
+    _CONFIG_PATH = os.path.join(_CONFIG_DIR, '.gui_config.json')
+else:
+    _CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.gui_config.json')
 
 
 def _load_config():
@@ -50,7 +56,10 @@ class ChatMemoirApp:
         self._config = _load_config()
 
         # 脚本所在目录（filedialog 会改变 CWD，所有相对路径都基于此解析）
-        self._script_dir = os.path.dirname(os.path.abspath(__file__))
+        if getattr(sys, 'frozen', False):
+            self._script_dir = os.path.dirname(sys.executable)
+        else:
+            self._script_dir = os.path.dirname(os.path.abspath(__file__))
 
         # 状态变量
         self.db_dir = tk.StringVar(value=self._config.get('last_db_dir', ''))
@@ -701,6 +710,8 @@ class ChatMemoirApp:
 
 
 def main():
+    import multiprocessing
+    multiprocessing.freeze_support()
     root = tk.Tk()
     app = ChatMemoirApp(root)
     root.mainloop()

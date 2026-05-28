@@ -1,11 +1,15 @@
 import logging
 import os
+import sys
 import time
 import traceback
 from functools import wraps
 
-# 日志目录：放在 memoir 包所在目录下的 logs 文件夹
-_log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
+# 日志目录：frozen 模式使用 %APPDATA% 可写目录
+if getattr(sys, 'frozen', False):
+    _log_dir = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'ChatMemoir', 'logs')
+else:
+    _log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
 os.makedirs(_log_dir, exist_ok=True)
 
 filename = time.strftime("%Y-%m-%d", time.localtime(time.time()))

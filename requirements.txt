@@ -12,7 +12,6 @@ requests~=2.32.3
 xmltodict~=0.14.2
 Crypto~=1.4.1
 pycryptodome
-cryptography
 openpyxl==3.1.5
 aiofiles~=24.1.0
 dateparser~=1.2.1

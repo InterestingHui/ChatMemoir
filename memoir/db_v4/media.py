@@ -20,13 +20,8 @@ from memoir.log import logger
 
 
 def get_ffmpeg_path():
-    # 获取打包后的资源目录
-    resource_dir = getattr(sys, '_MEIPASS', os.path.abspath(os.path.dirname(__file__)))
-
-    # 构建 FFmpeg 可执行文件的路径
-    ffmpeg_path = os.path.join(resource_dir, 'app', 'resources', 'data', 'ffmpeg.exe')
-
-    return ffmpeg_path
+    from scribe.exporter_base import get_ffmpeg_path as _get_ffmpeg_path
+    return _get_ffmpeg_path()
 
 
 class MediaDB(ArchiveBase):

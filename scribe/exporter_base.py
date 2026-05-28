@@ -528,13 +528,11 @@ def copy_files(file_tasks: List[Tuple[str, str, str]]):
 
 
 def get_ffmpeg_path():
-    # 获取打包后的资源目录
-    resource_dir = getattr(sys, '_MEIPASS', os.path.abspath(os.path.dirname(__file__)))
-
-    # 构建 FFmpeg 可执行文件的路径
-    ffmpeg_path = os.path.join(resource_dir, 'ffmpeg.exe')
+    # Nuitka/源码通用：基于 __file__ 查找 resources/ffmpeg.exe
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    ffmpeg_path = os.path.join(base_dir, 'resources', 'ffmpeg.exe')
     if not os.path.exists(ffmpeg_path):
-        ffmpeg_path = os.path.join(resource_dir, 'resources', 'ffmpeg.exe')
+        ffmpeg_path = os.path.join(base_dir, 'ffmpeg.exe')
     return ffmpeg_path
 
 
@@ -560,31 +558,16 @@ def decode_audio_to_mp3(media_buffer, output_dir, filename):
         # 调用系统上的 ffmpeg 可执行文件
         # 获取 FFmpeg 可执行文件的路径
         ffmpeg_path = get_ffmpeg_path()
-        # print(ffmpeg_path)
-        # # 调用 FFmpeg
         if os.path.exists(ffmpeg_path):
             cmd = f'''"{ffmpeg_path}" -loglevel quiet -y -f s16le -i "{pcm_path}" -ar 44100 -ac 1 "{mp3_path}"'''
-            # system(cmd)
-            # 使用subprocess.run()执行命令
             subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        else:
-            # 源码运行的时候下面的有效
-            # 这里不知道怎么捕捉异常
-            cmd = f'''"{os.path.join(os.getcwd(), 'app', 'resources', 'data', 'ffmpeg.exe')}" -loglevel quiet -y -f s16le -i "{pcm_path}" -ar 44100 -ac 1 "{mp3_path}"'''
-            # system(cmd)
-            # 使用subprocess.run()执行命令
-            subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        # if os.path.exists(silk_path):
-        #     os.remove(silk_path)
-        # if os.path.exists(pcm_path):
-        #     os.remove(pcm_path)
     except Exception as e:
         print(f"Error: {e}")
         logger.error(f'语音错误\n{traceback.format_exc()}')
-        cmd = f'''"{os.path.join(os.getcwd(), 'app', 'resources', 'data', 'ffmpeg.exe')}" -loglevel quiet -y -f s16le -i "{pcm_path}" -ar 44100 -ac 1 "{mp3_path}"'''
-        # system(cmd)
-        # 使用subprocess.run()执行命令
-        subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        ffmpeg_path = get_ffmpeg_path()
+        if os.path.exists(ffmpeg_path):
+            cmd = f'''"{ffmpeg_path}" -loglevel quiet -y -f s16le -i "{pcm_path}" -ar 44100 -ac 1 "{mp3_path}"'''
+            subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     finally:
         return mp3_path
 
