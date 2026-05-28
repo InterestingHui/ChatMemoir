@@ -24,3 +24,9 @@ server
 *.spec
 test*
 wordcloud.html
+
+# Nuitka build artifacts
+build_nuitka/
+*.build/
+*.dist/
+*.onefile-build/
