@@ -23,6 +23,7 @@ server
 *.log
 *.spec
 test*
+!tests/
 wordcloud.html
 
 # Nuitka build artifacts
