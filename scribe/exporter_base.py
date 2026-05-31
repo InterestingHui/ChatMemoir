@@ -528,9 +528,11 @@ def copy_files(file_tasks: List[Tuple[str, str, str]]):
 
 
 def get_ffmpeg_path():
-    # Nuitka/源码通用：基于 __file__ 查找 resources/ffmpeg.exe
-    base_dir = os.path.abspath(os.path.dirname(__file__))
-    ffmpeg_path = os.path.join(base_dir, 'resources', 'ffmpeg.exe')
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+    ffmpeg_path = os.path.join(base_dir, 'scribe', 'resources', 'ffmpeg.exe')
     if not os.path.exists(ffmpeg_path):
         ffmpeg_path = os.path.join(base_dir, 'ffmpeg.exe')
     return ffmpeg_path

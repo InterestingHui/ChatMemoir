@@ -4,6 +4,7 @@ import json
 import math
 import os
 import shutil
+import sys
 import time
 from memoir.decrypt.decrypt_dat import batch_decode_image_multiprocessing
 from memoir.log import logger
@@ -28,11 +29,12 @@ class HtmlExporter(ExporterBase):
         f_name = '.html'
         filename = os.path.join(self.origin_path, f'{self.contact.remark}{f_name}')
         filename = get_new_filename(filename)
-        # 获取当前脚本的目录
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        # 构建要读取的文件路径
-        file_path = os.path.join(current_dir, 'resources', 'template.html')
-        shutil.copytree(os.path.join(current_dir, 'resources', 'emoji'), os.path.join(self.origin_path, 'emoji'),dirs_exist_ok=True)
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        file_path = os.path.join(base_dir, 'scribe', 'resources', 'template.html')
+        shutil.copytree(os.path.join(base_dir, 'scribe', 'resources', 'emoji'), os.path.join(self.origin_path, 'emoji'),dirs_exist_ok=True)
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
             html_head, html_end = content.split('/*注意看这是分割线*/')
