@@ -496,12 +496,17 @@ def get_key_inner(pid, process_infos):
                             if inline_key not in key_set and len(inline_key) == KEY_SIZE:
                                 keys.append(inline_key)
                                 key_set.add(inline_key)
-                        # Method 3: read 32 bytes from offset+8, offset-8, offset+16 (passphrase at nearby positions)
-                        for delta in (8, -8, 16, 24):
+                        # Method 3: read 32 bytes from wide range around match (passphrase may be far from anchor)
+                        for delta in range(-256, 257, 8):
                             pos = offset + delta
                             if 0 <= pos and pos + KEY_SIZE <= len(target_data):
                                 near_key = target_data[pos:pos + KEY_SIZE]
                                 if near_key not in key_set and len(near_key) == KEY_SIZE:
+                                    # Quick filter: skip low-entropy (all zeros, all FFs, repeating)
+                                    if near_key == b'\x00' * KEY_SIZE:
+                                        continue
+                                    if len(set(near_key)) <= 3:
+                                        continue
                                     keys.append(near_key)
                                     key_set.add(near_key)
     logger.info(f"[get_key_inner] Found {len(pre_addresses)} pointer candidates and {len(keys)} inline candidates from YARA")
