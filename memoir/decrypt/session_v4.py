@@ -463,6 +463,8 @@ def get_key_inner(pid, process_infos):
         '''
     rules = yara.compile(source=rules_v4_key)
     pre_addresses = []
+    keys = []
+    key_set = set()
     for base_address, region_size in process_infos:
         memory = read_process_memory(process_handle, base_address, region_size)
         # 定义目标数据（如内存或文件内容）
@@ -484,11 +486,25 @@ def get_key_inner(pid, process_infos):
                     for string in match.strings:
                         instance = string.instances[0]
                         offset, content = instance.offset, instance.matched_data
+                        # Method 1: read 8-byte pointer from match → read 32 bytes at address (4.0.x)
                         addr = read_num(target_data, offset, 8)
-                        pre_addresses.append(addr)
-    logger.info(f"[get_key_inner] Found {len(pre_addresses)} candidate addresses from YARA")
-    keys = []
-    key_set = set()
+                        if addr:
+                            pre_addresses.append(addr)
+                        # Method 2: read 32 bytes directly from match offset (4.1.x passphrase inline)
+                        if offset + KEY_SIZE <= len(target_data):
+                            inline_key = target_data[offset:offset + KEY_SIZE]
+                            if inline_key not in key_set and len(inline_key) == KEY_SIZE:
+                                keys.append(inline_key)
+                                key_set.add(inline_key)
+                        # Method 3: read 32 bytes from offset+8, offset-8, offset+16 (passphrase at nearby positions)
+                        for delta in (8, -8, 16, 24):
+                            pos = offset + delta
+                            if 0 <= pos and pos + KEY_SIZE <= len(target_data):
+                                near_key = target_data[pos:pos + KEY_SIZE]
+                                if near_key not in key_set and len(near_key) == KEY_SIZE:
+                                    keys.append(near_key)
+                                    key_set.add(near_key)
+    logger.info(f"[get_key_inner] Found {len(pre_addresses)} pointer candidates and {len(keys)} inline candidates from YARA")
     for pre_address in pre_addresses:
         if any([base_address <= pre_address <= base_address + region_size - KEY_SIZE for base_address, region_size in
                 process_infos]):
