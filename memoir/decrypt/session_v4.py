@@ -272,17 +272,29 @@ def verify_key(key: bytes, buffer: bytes, flag, result):
         return False
 
 
+def is_ok_passphrase(passphrase, buf):
+    """WeChat 4.1.x: passphrase → PBKDF2(256000) → derived key → HMAC verify."""
+    salt = buf[:SALT_SIZE]
+    derived_key = PBKDF2(passphrase, salt, dkLen=KEY_SIZE, count=ROUND_COUNT, hmac_hash_module=SHA512)
+    return is_ok(derived_key, buf)
+
+
 def get_key_(keys, buf):
     # Sequential verification — avoids multiprocessing.Value serialization
     # crash on Windows/Python 3.14 (Synchronized objects not picklable via Pool.starmap).
     # Each PBKDF2 check is ~0.5s; YARA typically produces <20 candidates.
     logger.info(f"[get_key_] Verifying {len(keys)} YARA candidate keys sequentially")
     for i, key in enumerate(keys):
+        # Try as raw derived key (WeChat 4.0.x)
         if is_ok(key, buf):
-            logger.info(f"[get_key_] Key verified at candidate #{i+1}")
-            return bytes.hex(key)
-    logger.warning("[get_key_] No YARA candidate key passed verification")
-    return None
+            logger.info(f"[get_key_] Key verified at candidate #{i+1} (raw derived key)")
+            return bytes.hex(key), False
+        # Try as passphrase (WeChat 4.1.x) — expensive PBKDF2 derivation
+        if is_ok_passphrase(key, buf):
+            logger.info(f"[get_key_] Key verified at candidate #{i+1} (passphrase, 4.1.x format)")
+            return bytes.hex(key), True
+    logger.warning("[get_key_] No YARA candidate key passed verification (tried raw and passphrase modes)")
+    return None, False
 
 
 def collect_db_salts(data_dir):
@@ -489,6 +501,8 @@ def get_key_inner(pid, process_infos):
 
 
 def get_key(pid, process_handle, buf):
+    """Scans process memory for WCDB encryption key or passphrase.
+    Returns (key_hex, is_passphrase) or (None, False)."""
     process_infos = get_memory_regions(process_handle)
 
     def split_list(lst, n):
@@ -504,8 +518,7 @@ def get_key(pid, process_handle, buf):
     for r in results:
         if r:
             keys += r
-    key = get_key_(keys, buf)
-    return key
+    return get_key_(keys, buf)
 
 
 def get_wx_dir(process_handle):
@@ -678,9 +691,23 @@ def dump_session_info_v4(pid) -> SessionInfo | None:
             logger.info(f"[dump_session_info_v4] Using {db_file_path} for YARA verification")
             with open(db_file_path, 'rb') as f:
                 buf = f.read()
-            session_info.key = get_key(pid, process_handle, buf)
-            if session_info.key:
-                logger.info("[dump_session_info_v4] Key found via YARA fallback")
+            key_hex, is_passphrase = get_key(pid, process_handle, buf)
+            if key_hex:
+                session_info.key = key_hex
+                if is_passphrase:
+                    logger.info("[dump_session_info_v4] Passphrase found, deriving per-DB keys")
+                    passphrase = bytes.fromhex(key_hex)
+                    db_storage = session_info.data_dir
+                    trimmed_wx_dir = '\\'.join(db_storage.rstrip('\\').split('\\')[:-1])
+                    salt_to_path = collect_db_salts(db_storage)
+                    for salt_hex, db_path in salt_to_path.items():
+                        salt = bytes.fromhex(salt_hex)
+                        derived_key = PBKDF2(passphrase, salt, dkLen=KEY_SIZE, count=ROUND_COUNT, hmac_hash_module=SHA512)
+                        rel_path = os.path.relpath(db_path, trimmed_wx_dir)
+                        session_info.key_map[rel_path] = derived_key.hex()
+                    logger.info(f"[dump_session_info_v4] Derived keys for {len(session_info.key_map)} databases")
+                else:
+                    logger.info("[dump_session_info_v4] Raw key found via YARA fallback")
         else:
             logger.error("[dump_session_info_v4] No .db file found for YARA verification")
 
