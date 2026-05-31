@@ -512,7 +512,7 @@ def get_wx_dir(process_handle):
     rules_v4_dir = r'''
     rule GetDataDir {
         strings:
-            $a = /[a-zA-Z]:\\(.{1,100}?\\){0,1}?xwechat_files\\[0-9a-zA-Z_-]{6,24}?\\db_storage\\/
+            $a = /[a-zA-Z]:\\(.{1,100}?\\)*?xwechat_files\\[0-9a-zA-Z_-]{6,24}?\\db_storage\\/
         condition:
             $a
     }
