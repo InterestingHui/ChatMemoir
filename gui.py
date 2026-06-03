@@ -521,11 +521,31 @@ class ChatMemoirApp:
                 continue
             seen_uids.add(uid)
 
-            self.log(f"发现微信账号: {session_info.nick_name} ({uid})")
+            self.log(f"发现微信账号: {session_info.nick_name or uid} ({uid})")
             key = session_info.key
             if not key:
-                self.log(f"  {uid}: 未找到密钥，跳过")
-                continue
+                self.log(f"  {uid}: 内置密钥提取失败，请使用备用方案")
+                # Ask user for passphrase via main thread
+                passphrase = self._ask_passphrase(uid)
+                if not passphrase:
+                    self.log(f"  {uid}: 未提供密钥，跳过")
+                    continue
+                # Derive per-DB keys from passphrase
+                import hashlib as _hl
+                key_map = {}
+                trimmed = '\\'.join(session_info.data_dir.rstrip('\\').split('\\')[:-1])
+                for root, dirs, files in os.walk(session_info.data_dir):
+                    for fn in files:
+                        if fn.endswith('.db'):
+                            fp = os.path.join(root, fn)
+                            if os.path.getsize(fp) < 4096: continue
+                            with open(fp, 'rb') as fh: salt = fh.read(16)
+                            dk = _hl.pbkdf2_hmac('sha512', bytes.fromhex(passphrase), salt, 256000, dklen=32)
+                            key_map[os.path.relpath(fp, trimmed)] = dk.hex()
+                session_info.key_map = key_map
+                session_info.key = list(key_map.values())[0] if key_map else passphrase
+                key = session_info.key
+                self.log(f"  已从 passphrase 派生 {len(key_map)} 个数据库密钥")
 
             self.log("正在解密数据库...")
             if self._db_version == 4:
@@ -594,6 +614,80 @@ class ChatMemoirApp:
         self.contacts = list(self.database.get_contacts())
         self.log(f"加载完成: {len(self.contacts)} 个联系人")
         return db_dir
+
+    def _ask_passphrase(self, uid):
+        """在主线程弹出输入框，让用户粘贴 wx_key 提取的密钥"""
+        import threading as _th
+        result = [None]
+        event = _th.Event()
+
+        def _show_dialog():
+            dialog = tk.Toplevel(self.root)
+            dialog.title("需要微信密钥")
+            dialog.geometry("520x240")
+            dialog.configure(bg=BG)
+            dialog.transient(self.root)
+            dialog.grab_set()
+            dialog.resizable(False, False)
+
+            # Content
+            tk.Label(dialog, text=f"微信 {uid} 的密钥未能自动提取",
+                     font=("Microsoft YaHei", 11), bg=BG, fg=TEXT_PRIMARY).pack(pady=(15, 5))
+            tk.Label(dialog, text="请运行 wx_key.exe 工具获取密钥，粘贴到下方：",
+                     font=("Microsoft YaHei", 9), bg=BG, fg=TEXT_SECONDARY).pack()
+
+            # Button to open wx_key
+            btn_frame = tk.Frame(dialog, bg=BG)
+            btn_frame.pack(pady=(5, 10))
+            wx_key_path = os.path.join(os.path.dirname(__file__), "tools", "wx_key", "wx_key.exe")
+            if os.path.exists(wx_key_path):
+                tk.Button(btn_frame, text="一键打开 wx_key 提取密钥",
+                         font=("Microsoft YaHei", 9), bg=PRIMARY, fg="white",
+                         relief="flat", padx=15, pady=5,
+                         command=lambda: os.startfile(wx_key_path)).pack(side=tk.LEFT, padx=5)
+
+            # Passphrase entry
+            entry_frame = tk.Frame(dialog, bg=BG)
+            entry_frame.pack(pady=5)
+            tk.Label(entry_frame, text="密钥:", font=("Microsoft YaHei", 10),
+                     bg=BG, fg=TEXT_PRIMARY).pack(side=tk.LEFT, padx=(0, 8))
+            entry_var = tk.StringVar()
+            entry = tk.Entry(entry_frame, textvariable=entry_var, width=50,
+                            font=("Consolas", 11))
+            entry.pack(side=tk.LEFT)
+
+            def _submit():
+                val = entry_var.get().strip()
+                if len(val) == 64 and all(c in '0123456789abcdefABCDEF' for c in val):
+                    result[0] = val.lower()
+                    dialog.destroy()
+                else:
+                    messagebox.showwarning("格式错误", "请输入64位十六进制密钥", parent=dialog)
+
+            def _skip():
+                dialog.destroy()
+
+            btn_frame2 = tk.Frame(dialog, bg=BG)
+            btn_frame2.pack(pady=(10, 0))
+            tk.Button(btn_frame2, text="确定", font=("Microsoft YaHei", 10),
+                     bg=PRIMARY, fg="white", relief="flat", padx=25, pady=5,
+                     command=_submit).pack(side=tk.LEFT, padx=8)
+            tk.Button(btn_frame2, text="跳过", font=("Microsoft YaHei", 10),
+                     bg="#E0E0E0", fg=TEXT_PRIMARY, relief="flat", padx=25, pady=5,
+                     command=_skip).pack(side=tk.LEFT, padx=8)
+
+            dialog.protocol("WM_DELETE_WINDOW", _skip)
+
+        self.root.after(0, _show_dialog)
+        # Busy-wait processing GUI events until user responds (max 5 min)
+        start = time.time()
+        while result[0] is None and (time.time() - start) < 300:
+            try:
+                self.root.update()
+            except Exception:
+                pass
+            time.sleep(0.05)
+        return result[0]
 
     def _on_decrypt_done(self, db_dir):
         """解密成功后切换到主屏"""
