@@ -436,7 +436,7 @@ class ChatMemoirApp:
     def set_loading_status(self, text):
         """线程安全 — 更新加载状态文字"""
         def _update():
-            self.set_loading_status(text)
+            self._lbl_loading_status.configure(text=text)
         try:
             self.root.after(0, _update)
         except Exception:
