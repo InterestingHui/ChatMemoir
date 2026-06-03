@@ -419,14 +419,28 @@ class ChatMemoirApp:
     # ── 日志 ──────────────────────────────────────────────
 
     def log(self, msg, loading=True):
-        """写日志到加载屏或状态栏"""
+        """线程安全日志 — 通过 root.after 调度 GUI 更新"""
         ts = datetime.now().strftime("%H:%M:%S")
         line = f"[{ts}] {msg}\n"
-        if loading:
-            self._loading_log.configure(state="normal")
-            self._loading_log.insert("end", line)
-            self._loading_log.see("end")
-            self._loading_log.configure(state="disabled")
+        def _update():
+            if loading:
+                self._loading_log.configure(state="normal")
+                self._loading_log.insert("end", line)
+                self._loading_log.see("end")
+                self._loading_log.configure(state="disabled")
+        try:
+            self.root.after(0, _update)
+        except Exception:
+            pass
+
+    def set_loading_status(self, text):
+        """线程安全 — 更新加载状态文字"""
+        def _update():
+            self.set_loading_status(text)
+        try:
+            self.root.after(0, _update)
+        except Exception:
+            pass
 
     def set_status(self, msg):
         self._statusbar.configure(text=msg)
@@ -434,14 +448,17 @@ class ChatMemoirApp:
     # ── 进度 ──────────────────────────────────────────────
 
     def set_loading_progress(self, current, total, filename=""):
-        """更新解密加载进度"""
-        if total <= 0:
-            return
+        """线程安全 — 更新解密加载进度"""
+        if total <= 0: return
         pct = int(current / total * 100)
-        self._loading_progress["value"] = pct
         short_name = os.path.basename(filename)[:30] if filename else ""
-        self._lbl_loading_pct.configure(text=f"{current}/{total} ({pct}%) {short_name}")
-        self._loading_log.see("end")
+        def _update():
+            self._loading_progress["value"] = pct
+            self._lbl_loading_pct.configure(text=f"{current}/{total} ({pct}%)  {short_name}")
+        try:
+            self.root.after(0, _update)
+        except Exception:
+            pass
 
     def set_progress(self, pct):
         """设置导出进度（0-100）"""
@@ -487,7 +504,7 @@ class ChatMemoirApp:
         """开始一键解密"""
         self._show_screen("loading")
         self._loading_progress.start(10)
-        self._lbl_loading_status.configure(text="正在扫描微信进程...")
+        self.set_loading_status("正在扫描微信进程...")
         self._loading_log.configure(state="normal")
         self._loading_log.delete("1.0", "end")
         self._loading_log.configure(state="disabled")
@@ -509,13 +526,13 @@ class ChatMemoirApp:
             raise PermissionError("需要管理员权限才能读取微信进程内存")
 
         # 2. 扫描微信进程
-        self._lbl_loading_status.configure(text="正在扫描微信进程...")
+        self.set_loading_status("正在扫描微信进程...")
         self.log("正在扫描微信 v4 进程 (Weixin.exe / WeChatAppEx.exe)...")
         session_info_list = get_info_v4()
         self._db_version = 4
 
         if not session_info_list:
-            self._lbl_loading_status.configure(text="尝试 v3 微信进程...")
+            self.set_loading_status("尝试 v3 微信进程...")
             self.log("v4 未找到，尝试 v3 (WeChat.exe)...")
             import json as _json
             vl_path = _resource_path(os.path.join("memoir", "decrypt", "version_list.json"))
@@ -525,8 +542,9 @@ class ChatMemoirApp:
             self._db_version = 3
 
         if not session_info_list:
-            self.log("未找到运行中的微信进程，请先打开微信并登录")
-            raise RuntimeError("未找到微信进程")
+            self.log("未找到已登录的微信进程")
+            self.log("请确认：1) 微信已打开  2) 已扫码登录  3) 以管理员身份运行本程序")
+            raise RuntimeError("未找到已登录的微信进程，请先打开微信并扫码登录")
 
         # 3. 解密每个账号的数据库
         seen_uids = set()
@@ -562,7 +580,7 @@ class ChatMemoirApp:
                 key = session_info.key
                 self.log(f"  已从 passphrase 派生 {len(key_map)} 个数据库密钥")
 
-            self._lbl_loading_status.configure(text=f"正在解密 {uid} 的数据库...")
+            self.set_loading_status(f"正在解密 {uid} 的数据库...")
             self.set_loading_progress(0, 1, "")
             self.log("正在解密数据库...")
             if self._db_version == 4:
@@ -616,10 +634,13 @@ class ChatMemoirApp:
             self.log(f"解密完成: {db_dir}")
 
         if not db_dir:
-            raise RuntimeError("未能解密任何数据库")
+            self.log("所有账号均未成功解密，可能原因：")
+            self.log("  - 微信未登录（请扫码登录后再试）")
+            self.log("  - wx_key 未提取到密钥（请手动运行 tools/wx_key/wx_key.exe）")
+            raise RuntimeError("未能解密任何数据库，请确认微信已登录且 wx_key 提取成功")
 
         # 4. 加载联系人
-        self._lbl_loading_status.configure(text="正在加载联系人...")
+        self.set_loading_status("正在加载联系人...")
         self.set_loading_progress(1, 1, "")
         self.log("正在连接数据库...")
         conn = ArchiveConnection(db_dir, self._db_version)
@@ -789,7 +810,7 @@ class ChatMemoirApp:
         """解密失败后显示错误"""
         self._loading_progress.stop()
         self._btn_cancel.pack_forget()
-        self._lbl_loading_status.configure(text=f"解析失败: {e}")
+        self.set_loading_status(f"解析失败: {e}")
         self._btn_retry.pack(side="left", pady=(12, 0))
 
     # ── 联系人列表 ────────────────────────────────────────
@@ -973,6 +994,7 @@ class ChatMemoirApp:
             type_=file_type,
             message_types=None,
             time_range=time_range,
+            progress_callback=lambda pct: self.root.after(0, lambda: self.set_progress(int(pct * 100))),
         )
         scribe.start()
         return output_dir

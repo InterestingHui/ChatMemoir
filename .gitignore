@@ -31,3 +31,7 @@ build_nuitka/
 *.build/
 *.dist/
 *.onefile-build/
+# Project workspace
+.planning/
+xiaoyiClaw/
+
