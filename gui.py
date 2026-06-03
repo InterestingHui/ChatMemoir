@@ -524,11 +524,10 @@ class ChatMemoirApp:
             self.log(f"发现微信账号: {session_info.nick_name or uid} ({uid})")
             key = session_info.key
             if not key:
-                self.log(f"  {uid}: 内置密钥提取失败，请使用备用方案")
-                # Ask user for passphrase via main thread
-                passphrase = self._ask_passphrase(uid)
+                # Try wx_key automatic extraction
+                passphrase = self._get_wx_key_passphrase(uid)
                 if not passphrase:
-                    self.log(f"  {uid}: 未提供密钥，跳过")
+                    self.log(f"  {uid}: 未能获取密钥，跳过")
                     continue
                 # Derive per-DB keys from passphrase
                 import hashlib as _hl
@@ -614,6 +613,62 @@ class ChatMemoirApp:
         self.contacts = list(self.database.get_contacts())
         self.log(f"加载完成: {len(self.contacts)} 个联系人")
         return db_dir
+
+    def _get_wx_key_passphrase(self, uid):
+        """自动从 wx_key 工具获取 passphrase。
+        先检查缓存文件，没有则启动 wx_key.exe 等待其提取。"""
+        import json as _json
+
+        wx_key_prefs = os.path.join(os.environ.get('APPDATA', ''),
+                                     'com.example', 'wx_key', 'shared_preferences.json')
+
+        # 1. Try cached key first
+        if os.path.exists(wx_key_prefs):
+            try:
+                with open(wx_key_prefs, 'r', encoding='utf-8') as f:
+                    prefs = _json.load(f)
+                cached_key = prefs.get('flutter.wechat_db_key', '')
+                if len(cached_key) == 64 and all(c in '0123456789abcdef' for c in cached_key):
+                    self.log(f"  从 wx_key 缓存读取到密钥")
+                    return cached_key
+            except Exception:
+                pass
+
+        # 2. Launch wx_key.exe and wait for it
+        wx_key_exe = os.path.join(os.path.dirname(__file__), "tools", "wx_key", "wx_key.exe")
+        if not os.path.exists(wx_key_exe):
+            self.log(f"  wx_key.exe 未找到: {wx_key_exe}")
+            # Fall back to manual input
+            return self._ask_passphrase(uid)
+
+        self.log(f"  启动 wx_key 自动提取密钥...")
+        try:
+            os.startfile(wx_key_exe)
+        except Exception:
+            self.log(f"  无法启动 wx_key.exe")
+            return self._ask_passphrase(uid)
+
+        # 3. Wait for wx_key to save the key (max 60 seconds)
+        self.log(f"  等待 wx_key 完成提取（最多60秒）...")
+        for _ in range(120):
+            time.sleep(0.5)
+            if os.path.exists(wx_key_prefs):
+                try:
+                    with open(wx_key_prefs, 'r', encoding='utf-8') as f:
+                        prefs = _json.load(f)
+                    key = prefs.get('flutter.wechat_db_key', '')
+                    if len(key) == 64 and all(c in '0123456789abcdef' for c in key):
+                        self.log(f"  wx_key 提取成功")
+                        return key
+                except Exception:
+                    pass
+            try:
+                self.root.update()
+            except Exception:
+                pass
+
+        self.log(f"  wx_key 超时，切换到手动输入")
+        return self._ask_passphrase(uid)
 
     def _ask_passphrase(self, uid):
         """在主线程弹出输入框，让用户粘贴 wx_key 提取的密钥"""
