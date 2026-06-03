@@ -2,7 +2,7 @@ import hmac
 import os
 import stat
 import struct
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import PBKDF2
@@ -118,12 +118,14 @@ def decode_wrapper(tasks):
     return decrypt_db_file_v4(*tasks)
 
 
-def decrypt_db_files(key, src_dir: str, dest_dir: str, key_map: dict = None, skip_existing: bool = True):
+def decrypt_db_files(key, src_dir: str, dest_dir: str, key_map: dict = None,
+                     skip_existing: bool = True, progress_callback=None):
     """Decrypt all .db files under src_dir.
     key: default key (used if key_map doesn't cover a file)
     key_map: optional dict of relative_path -> enc_key_hex for per-database keys
     skip_existing: if True, skip files where dest already exists, src hasn't been modified,
                    and dest is not a corrupt stub (< PAGE_SIZE bytes)
+    progress_callback: optional callable(current, total, filename) called per file
     Returns: (total, failed) counts for caller diagnostics.
     """
     if not os.path.exists(src_dir):
@@ -184,9 +186,23 @@ def decrypt_db_files(key, src_dir: str, dest_dir: str, key_map: dict = None, ski
     if not decrypt_tasks:
         print("所有数据库已是最新，无需重新解密")
         return skipped, 0
+
+    total = len(decrypt_tasks)
+    if progress_callback:
+        progress_callback(0, total, "")
+
     with ProcessPoolExecutor(max_workers=16) as executor:
-        results = list(executor.map(decode_wrapper, decrypt_tasks))
-    failed = sum(1 for r in results if r is not True)
+        futures = {executor.submit(decode_wrapper, task): task for task in decrypt_tasks}
+        completed = 0
+        failed = 0
+        for future in as_completed(futures):
+            completed += 1
+            if future.result() is not True:
+                failed += 1
+            if progress_callback:
+                _, _, filename = futures[future]
+                progress_callback(completed, total, filename)
+
     if failed:
-        print(f"警告: {failed}/{len(results)} 个数据库解密失败")
-    return len(results), failed
+        print(f"警告: {failed}/{total} 个数据库解密失败")
+    return total, failed

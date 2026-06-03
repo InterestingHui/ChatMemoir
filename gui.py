@@ -240,8 +240,12 @@ class ChatMemoirApp:
                                              foreground=TEXT_PRIMARY, background=BG)
         self._lbl_loading_status.pack(pady=(0, 12))
 
-        self._loading_progress = ttk.Progressbar(center, mode="indeterminate", length=500)
+        self._loading_progress = ttk.Progressbar(center, mode="determinate", length=500)
         self._loading_progress.pack(fill="x", pady=(0, 16))
+        self._loading_progress["value"] = 0
+        self._lbl_loading_pct = ttk.Label(center, text="", font=("Consolas", 11),
+                                           foreground=TEXT_SECONDARY, background=BG)
+        self._lbl_loading_pct.pack(pady=(0, 8))
 
         # 日志区域
         log_frame = ttk.Frame(center, style="Card.TFrame")
@@ -429,6 +433,16 @@ class ChatMemoirApp:
 
     # ── 进度 ──────────────────────────────────────────────
 
+    def set_loading_progress(self, current, total, filename=""):
+        """更新解密加载进度"""
+        if total <= 0:
+            return
+        pct = int(current / total * 100)
+        self._loading_progress["value"] = pct
+        short_name = os.path.basename(filename)[:30] if filename else ""
+        self._lbl_loading_pct.configure(text=f"{current}/{total} ({pct}%) {short_name}")
+        self._loading_log.see("end")
+
     def set_progress(self, pct):
         """设置导出进度（0-100）"""
         self._export_progress["value"] = pct
@@ -495,11 +509,13 @@ class ChatMemoirApp:
             raise PermissionError("需要管理员权限才能读取微信进程内存")
 
         # 2. 扫描微信进程
+        self._lbl_loading_status.configure(text="正在扫描微信进程...")
         self.log("正在扫描微信 v4 进程 (Weixin.exe / WeChatAppEx.exe)...")
         session_info_list = get_info_v4()
         self._db_version = 4
 
         if not session_info_list:
+            self._lbl_loading_status.configure(text="尝试 v3 微信进程...")
             self.log("v4 未找到，尝试 v3 (WeChat.exe)...")
             import json as _json
             vl_path = _resource_path(os.path.join("memoir", "decrypt", "version_list.json"))
@@ -546,6 +562,8 @@ class ChatMemoirApp:
                 key = session_info.key
                 self.log(f"  已从 passphrase 派生 {len(key_map)} 个数据库密钥")
 
+            self._lbl_loading_status.configure(text=f"正在解密 {uid} 的数据库...")
+            self.set_loading_progress(0, 1, "")
             self.log("正在解密数据库...")
             if self._db_version == 4:
                 from memoir.decrypt.decrypt_dat import get_decode_code_v4
@@ -558,7 +576,8 @@ class ChatMemoirApp:
                 total, failed = decrypt_v4.decrypt_db_files(
                     key, src_dir=session_info.data_dir, dest_dir=output_dir,
                     key_map=getattr(session_info, 'key_map', None) or None,
-                    skip_existing=True)
+                    skip_existing=True,
+                    progress_callback=self.set_loading_progress)
                 if failed:
                     self.log(f"  警告: {failed}/{total} 个数据库解密失败")
                 info_dir = os.path.join(output_dir, "db_storage")
@@ -600,6 +619,8 @@ class ChatMemoirApp:
             raise RuntimeError("未能解密任何数据库")
 
         # 4. 加载联系人
+        self._lbl_loading_status.configure(text="正在加载联系人...")
+        self.set_loading_progress(1, 1, "")
         self.log("正在连接数据库...")
         conn = ArchiveConnection(db_dir, self._db_version)
         self.database = conn.get_interface()
