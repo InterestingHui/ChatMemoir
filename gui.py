@@ -512,6 +512,34 @@ class ChatMemoirApp:
         self._btn_cancel.pack(side="right")
         self.run_task(self._auto_decrypt, on_done=self._on_decrypt_done, on_error=self._on_decrypt_error)
 
+    def _fast_find_data_dir(self):
+        """快速找到微信数据目录（不扫描密钥，避免卡死）。
+        Returns (uid, data_dir, nick_name) or None.
+        data_dir 格式与 dump_session_info_v4 一致：父目录（不含 db_storage）。"""
+        import psutil
+        for proc in psutil.process_iter(['name', 'pid']):
+            name = proc.name()
+            if name not in ('Weixin.exe', 'WeChatAppEx.exe'):
+                continue
+            try:
+                for mm in proc.memory_maps(grouped=False):
+                    p = mm.path or ''
+                    idx = p.find('db_storage')
+                    if idx != -1:
+                        db_storage_path = p[:idx + len('db_storage')] + '\\'
+                        # 与 dump_session_info_v4 一致：data_dir = 去掉最后两层
+                        # db_storage_path = ...\wxid_xxxx\db_storage\
+                        # data_dir = ...\wxid_xxxx（与原始代码一致）
+                        parts = db_storage_path.rstrip('\\').split('\\')
+                        uid = '_'.join(parts[-2].split('_')[0:-1])
+                        data_dir = '\\'.join(parts[:-1])  # 父目录，不含 db_storage
+                        nick_name = uid
+                        self.log(f"  快速定位到微信数据目录 (PID={proc.pid}): {data_dir}")
+                        return uid, data_dir, nick_name
+            except Exception:
+                continue
+        return None
+
     def _auto_decrypt(self):
         """自动检测微信版本、提取密钥、解密数据库、加载联系人"""
         from memoir.decrypt import get_info_v4, get_info_v3
@@ -525,13 +553,32 @@ class ChatMemoirApp:
             self.log("右键 ChatMemoir.exe → 以管理员身份运行")
             raise PermissionError("需要管理员权限才能读取微信进程内存")
 
-        # 2. 扫描微信进程
-        self.set_loading_status("正在扫描微信进程...")
-        self.log("正在扫描微信 v4 进程 (Weixin.exe / WeChatAppEx.exe)...")
-        session_info_list = get_info_v4()
-        self._db_version = 4
+        # 2. 检查 wx_key 缓存，有缓存则走快速路径（跳过耗时的 YARA/偏移扫描）
+        wx_passphrase = self._read_wx_key_cache()
+        if wx_passphrase:
+            self.set_loading_status("正在定位微信数据目录...")
+            self.log("检测到 wx_key 密钥缓存，使用快速解密流程...")
+            fast_info = self._fast_find_data_dir()
+            if fast_info:
+                uid, data_dir, nick_name = fast_info
+                from memoir.decrypt.common import SessionInfo
+                si = SessionInfo()
+                si.uid = uid
+                si.data_dir = data_dir
+                si.nick_name = nick_name
+                si.key = None  # 触发 wx_key fallback
+                session_info_list = [si]
+                self._db_version = 4
+            else:
+                session_info_list = []
+        else:
+            # 无缓存 — 走完整扫描流程（YARA + 偏移量 + multiprocessing）
+            self.set_loading_status("正在扫描微信进程...")
+            self.log("正在扫描微信 v4 进程 (Weixin.exe / WeChatAppEx.exe)...")
+            session_info_list = get_info_v4()
+            self._db_version = 4
 
-        if not session_info_list:
+        if not session_info_list and not wx_passphrase:
             self.set_loading_status("尝试 v3 微信进程...")
             self.log("v4 未找到，尝试 v3 (WeChat.exe)...")
             import json as _json
@@ -566,7 +613,6 @@ class ChatMemoirApp:
                 # Derive per-DB keys from passphrase
                 import hashlib as _hl
                 key_map = {}
-                trimmed = '\\'.join(session_info.data_dir.rstrip('\\').split('\\')[:-1])
                 for root, dirs, files in os.walk(session_info.data_dir):
                     for fn in files:
                         if fn.endswith('.db'):
@@ -574,7 +620,9 @@ class ChatMemoirApp:
                             if os.path.getsize(fp) < 4096: continue
                             with open(fp, 'rb') as fh: salt = fh.read(16)
                             dk = _hl.pbkdf2_hmac('sha512', bytes.fromhex(passphrase), salt, 256000, dklen=32)
-                            key_map[os.path.relpath(fp, trimmed)] = dk.hex()
+                            # key path relative to data_dir, matching decrypt_db_files lookup
+                            rel_dir = os.path.relpath(root, session_info.data_dir)
+                            key_map[os.path.join(rel_dir, fn)] = dk.hex()
                 session_info.key_map = key_map
                 session_info.key = list(key_map.values())[0] if key_map else passphrase
                 key = session_info.key
@@ -655,6 +703,22 @@ class ChatMemoirApp:
         self.contacts = list(self.database.get_contacts())
         self.log(f"加载完成: {len(self.contacts)} 个联系人")
         return db_dir
+
+    def _read_wx_key_cache(self):
+        """读取 wx_key 缓存的 passphrase（仅检查缓存，不启动 wx_key）。"""
+        import json as _json
+        wx_key_prefs = os.path.join(os.environ.get('APPDATA', ''),
+                                     'com.example', 'wx_key', 'shared_preferences.json')
+        if os.path.exists(wx_key_prefs):
+            try:
+                with open(wx_key_prefs, 'r', encoding='utf-8') as f:
+                    prefs = _json.load(f)
+                cached_key = prefs.get('flutter.wechat_db_key', '')
+                if len(cached_key) == 64 and all(c in '0123456789abcdef' for c in cached_key):
+                    return cached_key
+            except Exception:
+                pass
+        return None
 
     def _get_wx_key_passphrase(self, uid):
         """自动从 wx_key 工具获取 passphrase。
