@@ -26,6 +26,7 @@ test*
 !tests/
 wordcloud.html
 
+nuitka-crash-report.xml
 # Nuitka build artifacts
 build_nuitka/
 *.build/
