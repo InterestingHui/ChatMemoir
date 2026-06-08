@@ -6,11 +6,8 @@
 # Date:         2023/08/22
 # License:      https://github.com/xaoyaoo/PyWxDump/blob/3b794bcb47b0457d1245ce5b4cfec61b74524073/LICENSE MIT
 # -------------------------------------------------------------------------------
-import argparse
 import ctypes
 import hashlib
-import json
-import multiprocessing
 import os
 import re
 import sys
@@ -166,7 +163,7 @@ class AddrBias:
                         keyaddrs.append(addr - keyWindllOffset)
 
             return keyaddrs[-1] - module.lpBaseOfDll if len(keyaddrs) > 0 else 0
-        except:
+        except Exception:
             return 0
 
     def search_key(self, key: bytes):

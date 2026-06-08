@@ -24,7 +24,7 @@ class ContactDB(ArchiveBase):
             self.commit()
             cursor.close()
             return True
-        except:
+        except Exception:
             return False
 
     def get_label_by_id(self, label_id) -> str:
@@ -40,7 +40,7 @@ class ContactDB(ArchiveBase):
                 return result[0]
             else:
                 return ''
-        except:
+        except Exception:
             return ''
 
     def get_labels(self, label_id_list) -> str:
@@ -143,7 +143,7 @@ where username=?
             increase_update_data(db_path, self.cursor, self.DB, 'openim_appid', 'lang_id')
             # increase_update_data(db_path, self.cursor, self.DB, 'chat_room_member', 'room_id_')
             increase_data(db_path, self.cursor, self.DB, 'name2id', 'username')
-        except:
+        except Exception:
             print(f"数据库操作错误: {traceback.format_exc()}")
             self.DB.rollback()
 

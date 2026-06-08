@@ -52,7 +52,7 @@ def decompress(data):
     try:
         dst = lz4.block.decompress(data, uncompressed_size=len(data) << 10)
         decoded_string = dst.decode().replace("\x00", "")  # Remove any null characters
-    except:
+    except Exception:
         print(
             "Decompression failed: potentially corrupt input or insufficient buffer size."
         )
@@ -391,7 +391,7 @@ def parser_sub_type(xml_content):
         if data and data.get('msg'):
             data = data['msg']['appmsg']
             sub_type = int(data['type'])
-    except:
+    except Exception:
         sub_type = 0
     return sub_type
 

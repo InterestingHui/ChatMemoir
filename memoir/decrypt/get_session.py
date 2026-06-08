@@ -230,10 +230,10 @@ def read_info(version_list):
             tmp_rd['pid'] = process.pid
             try:
                 tmp_rd['version'] = Dispatch("Scripting.FileSystemObject").GetFileVersion(process.exe())
-            except:
+            except Exception:
                 try:
                     tmp_rd['version'] = get_version(process.pid)
-                except:
+                except Exception:
                     tmp_rd['version'] = '3'
             wechat_base_address = 0
             for module in process.memory_maps(grouped=False):

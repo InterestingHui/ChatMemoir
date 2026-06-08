@@ -24,7 +24,6 @@ from Crypto.Cipher import AES
 pic_head = (0xff, 0xd8, 0x89, 0x50, 0x47, 0x49)
 # 解密码
 decode_code = 0
-decode_code_v4 = -1
 
 AES_KEY_MAP = {
     b'\x07\x08V1\x08\x07': b'cfcd208495d565ef',  # 4.0第一代图片密钥
@@ -59,9 +58,9 @@ def get_code(dat_read):
             if idf_code == pic_head[head_index]:
                 return head_index, code
             head_index = head_index + 1
-        print("not jpg, png, gif")
+        logger.info("not jpg, png, gif")
         return -1, -1
-    except:
+    except Exception:
         return -1, -1
 
 
@@ -149,7 +148,8 @@ def get_decode_code_v4(data_dir):
                         # 推导出密钥
                         xor_key = [c ^ p for c, p in zip(file_tail, jpg_known_tail)]
                         if len(set(xor_key)) == 1:
-                            print(f'[*] 找到异或密钥: 0x{xor_key[0]:x}')
+                            logger.info(f'[*] 找到异或密钥: 0x{xor_key[0]:x}')
+                            ok_flag = True
                             return xor_key[0]
         return -1
 
@@ -263,6 +263,12 @@ async def decode_dat_v4_async(xor_key: int, file_path, out_path, dst_name='') ->
     # 读取加密文件的内容
     async with aio_open(file_path, 'rb') as f:
         header = await f.read(0xf)
+
+    if not is_v4_image(header):
+        return ''
+
+    async with aio_open(file_path, 'rb') as f:
+        await f.read(0xf)  # skip header
         encrypt_length = struct.unpack_from('<H', header, 6)[0]
         encrypt_length0 = encrypt_length // 16 * 16 + 16
         encrypted_data = await f.read(encrypt_length0)
@@ -294,7 +300,7 @@ async def decode_dat_v4_async(xor_key: int, file_path, out_path, dst_name='') ->
         await f.write(res_data[:-0x100000])
         await f.write(bytes([byte ^ xor_key for byte in res_data[-0x100000:]]))
 
-    print(f"解密完成，已保存到: {output_file}")
+    logger.info(f"解密完成，已保存到: {output_file}")
     return output_file
 
 

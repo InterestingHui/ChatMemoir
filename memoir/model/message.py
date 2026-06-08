@@ -101,7 +101,7 @@ class Message:
     def to_json(self) -> dict:
         try:
             xml_dict = xmltodict.parse(self.xml_content)
-        except:
+        except Exception:
             xml_dict = {}
         return {
             'type': str(self.type),
@@ -120,7 +120,7 @@ class Message:
     def to_text(self):
         try:
             return f'{self.type}\n{xmltodict.parse(self.xml_content)}'
-        except:
+        except Exception:
             print(self.xml_content)
             return f'{self.type}\n{self.xml_content}'
 

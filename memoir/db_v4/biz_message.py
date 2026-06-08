@@ -116,29 +116,6 @@ order by sort_seq
                     results.extend(r1)
 
         return results
-        results = []
-        # for db in self.DB:
-        #     cursor = db.cursor()
-        #     yield self._get_messages_by_num(cursor, username, start_sort_seq, msg_num)
-        lock = threading.Lock()  # 锁，用于确保线程安全地写入 results
-
-        def task(db):
-            """
-            每个线程执行的任务，获取某个数据库实例中的查询结果。
-            """
-            cursor = db.cursor()
-            try:
-                data = self._get_messages_by_username(cursor, username, time_range)
-                with lock:  # 确保对 results 的操作是线程安全的
-                    results.append(data)
-            finally:
-                cursor.close()
-
-        # 使用线程池
-        with ThreadPoolExecutor(max_workers=len(self.DB)) as executor:
-            executor.map(task, self.DB)
-        self.commit()
-        return results
 
     def _get_messages_by_num(self, cursor, username, start_sort_seq, msg_num):
         table_name = f'Msg_{hashlib.md5(username.encode("utf-8")).hexdigest()}'

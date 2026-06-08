@@ -109,7 +109,7 @@ def decodeExtraBuf(extra_buf_content: bytes):
             trunk_head = trunkName[key]
             try:
                 off = extra_buf_content.index(key) + 4
-            except:
+            except Exception:
                 pass
             char = extra_buf_content[off: off + 1]
             off += 1
@@ -131,7 +131,7 @@ def decodeExtraBuf(extra_buf_content: bytes):
             "telephone": res["手机号"],
             "gender": res["性别"],
         }
-    except:
+    except Exception:
         logger.error(f'联系人解析错误:\n{traceback.format_exc()}')
         return {
             "region": ('', '', ''),
@@ -403,13 +403,13 @@ class ArchiveV3(ArchiveInterface):
         """
         data = self.emotion_db.get_emoji_data(md5, thumb)
         prefix = "th_" if thumb else ""
-        f = '.' + get_image_type(data[:10])
-        file_path = os.path.join(output_path, prefix + md5 + f)
+        ext = '.' + get_image_type(data[:10])
+        file_path = os.path.join(output_path, prefix + md5 + ext)
         if not os.path.exists(file_path):
             try:
                 with open(file_path, 'wb') as f:
                     f.write(data)
-            except:
+            except Exception:
                 pass
         return file_path
 

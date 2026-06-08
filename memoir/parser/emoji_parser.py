@@ -37,11 +37,11 @@ def parser_emoji(xml_content):
     xml_content = xml_content.strip().replace('&', '&amp;')
     try:
         xml_dict = xmltodict.parse(xml_content)
-    except:
+    except Exception:
         try:
             xml_content = extract_msg(xml_content)
             xml_dict = xmltodict.parse(xml_content)
-        except:
+        except Exception:
             pass
     try:
         emoji_dic = xml_dict.get('msg', {}).get('emoji', {})
@@ -70,7 +70,7 @@ def parser_emoji(xml_content):
             'height': emoji_dic.get('@height', 0),
             'desc': desc,
         }
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
         logger.error(xml_content)
     finally:

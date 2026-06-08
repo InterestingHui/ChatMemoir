@@ -47,7 +47,7 @@ class EmotionDB(ArchiveBase):
             increase_data(db_path, self.cursor, self.DB, 'kStoreEmoticonCaptionsTable', 'md5_')
             increase_data(db_path, self.cursor, self.DB, 'kStoreEmoticonFilesTable', 'md5_')
             increase_data(db_path, self.cursor, self.DB, 'kStoreEmoticonPackageTable', 'package_id_')
-        except:
+        except Exception:
             print(f"数据库操作错误: {traceback.format_exc()}")
             self.DB.rollback()
 

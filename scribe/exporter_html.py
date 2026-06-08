@@ -5,7 +5,6 @@ import math
 import os
 import shutil
 import sys
-import time
 from memoir.decrypt.decrypt_dat import batch_decode_image_multiprocessing
 from memoir.log import logger
 from memoir.model import MessageType, Me

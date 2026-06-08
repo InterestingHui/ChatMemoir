@@ -46,7 +46,7 @@ def decompress(data):
         dctx = zstd.ZstdDecompressor()  # 创建解压对象
         x = dctx.decompress(data).strip(b'\x00').strip()
         return x.decode('utf-8').strip()
-    except:
+    except Exception:
         return ''
 
 
@@ -263,7 +263,7 @@ class ImageMessageFactory(MessageFactory, Singleton):
             width = image_info.get('width', 0)
             height = image_info.get('height', 0)
             filename = image_info.get('filename', '').strip().strip('"').strip()
-        except:
+        except Exception:
             pass
         if not filename:
             try:
@@ -273,7 +273,7 @@ class ImageMessageFactory(MessageFactory, Singleton):
                 # 转换为 JSON 格式
                 packed_info_data = MessageToDict(packed_info_data_proto)
                 filename = packed_info_data.get('filename', '').strip().strip('"').strip()
-            except:
+            except Exception:
                 pass
         msg = ImageMessage(
             local_id=message[0],
@@ -360,7 +360,7 @@ class VideoMessageFactory(MessageFactory, Singleton):
             width = image_info.get('width', 0)
             height = image_info.get('height', 0)
             filename = image_info.get('filename', '').strip().strip('"').strip()
-        except:
+        except Exception:
             pass
         msg = VideoMessage(
             local_id=message[0],
@@ -794,7 +794,7 @@ class SystemMessageFactory(MessageFactory, Singleton):
             try:
                 dic = xmltodict.parse(message_content)
                 message_content = dic.get('sysmsg', {}).get('revokemsg', {}).get('content', '')
-            except:
+            except Exception:
                 pass
             # logger.error(message_content)
         else:
@@ -889,7 +889,7 @@ class FileMessageFactory(MessageFactory, Singleton):
                 image_info = packed_info_data.get('fileInfo', {})
                 file_info = image_info.get('fileInfo', {})
                 filename = file_info.get('filename', '').strip()
-            except:
+            except Exception:
                 pass
         msg = FileMessage(
             local_id=message[0],

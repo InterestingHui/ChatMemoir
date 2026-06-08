@@ -161,7 +161,7 @@ rule GetKeyAddrStub
 def read_string(data: bytes, offset, size):
     try:
         return data[offset:offset + size].decode('utf-8')
-    except:
+    except Exception:
         # print(data[offset:offset + size])
         # print(traceback.format_exc())
         return ''
@@ -232,7 +232,7 @@ def read_bytes_from_pid(pid: int, addr: int, size: int):
 
         # 关闭句柄
         CloseHandle(hprocess)
-    except:
+    except Exception:
         pass
     # 返回读取的字节数组
     return bytes(buffer)
@@ -242,7 +242,7 @@ def read_string_from_pid(pid: int, addr: int, size: int):
     bytes0 = read_bytes_from_pid(pid, addr, size)
     try:
         return bytes0.decode('utf-8')
-    except:
+    except Exception:
         return ''
 
 

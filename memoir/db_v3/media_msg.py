@@ -59,30 +59,19 @@ class MediaMsg(ArchiveBase):
             # 调用系统上的 ffmpeg 可执行文件
             # 获取 FFmpeg 可执行文件的路径
             ffmpeg_path = get_ffmpeg_path()
-            # # 调用 FFmpeg
-            if os.path.exists(ffmpeg_path):
-                cmd = f'''"{ffmpeg_path}" -loglevel quiet -y -f s16le -i "{pcm_path}" -ar 44100 -ac 1 "{mp3_path}"'''
-                # system(cmd)
-                # 使用subprocess.run()执行命令
-                subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            else:
-                # 源码运行的时候下面的有效
-                # 这里不知道怎么捕捉异常
-                cmd = f'''"{os.path.join(os.getcwd(), 'app', 'resources', 'data', 'ffmpeg.exe')}" -loglevel quiet -y -f s16le -i "{pcm_path}" -ar 44100 -ac 1 "{mp3_path}"'''
-                # system(cmd)
-                # 使用subprocess.run()执行命令
-                subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if not os.path.exists(ffmpeg_path):
+                ffmpeg_path = os.path.join(os.getcwd(), 'app', 'resources', 'data', 'ffmpeg.exe')
+            ffmpeg_args = [ffmpeg_path, '-loglevel', 'quiet', '-y', '-f', 's16le', '-i', pcm_path, '-ar', '44100', '-ac', '1', mp3_path]
+            subprocess.run(ffmpeg_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if os.path.exists(silk_path):
                 os.remove(silk_path)
             if os.path.exists(pcm_path):
                 os.remove(pcm_path)
         except Exception as e:
-            print(f"Error: {e}")
             logger.error(f'语音发送错误\n{traceback.format_exc()}')
-            cmd = f'''"{os.path.join(os.getcwd(), 'app', 'resources', 'data', 'ffmpeg.exe')}" -loglevel quiet -y -f s16le -i "{pcm_path}" -ar 44100 -ac 1 "{mp3_path}"'''
-            # system(cmd)
-            # 使用subprocess.run()执行命令
-            subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            ffmpeg_path = os.path.join(os.getcwd(), 'app', 'resources', 'data', 'ffmpeg.exe')
+            ffmpeg_args = [ffmpeg_path, '-loglevel', 'quiet', '-y', '-f', 's16le', '-i', pcm_path, '-ar', '44100', '-ac', '1', mp3_path]
+            subprocess.run(ffmpeg_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         finally:
             return mp3_path
 
@@ -98,7 +87,7 @@ class MediaMsg(ArchiveBase):
             root = ET.fromstring(content)
             transtext = root.find(".//voicetrans").get("transtext")
             return transtext
-        except:
+        except Exception:
             return ""
 
     def audio_to_text(self, token, reserved0, output_path, open_im=False, filename=''):
@@ -142,7 +131,7 @@ class MediaMsg(ArchiveBase):
                     return ""
             else:
                 return ""
-        except:
+        except Exception:
             logger.error(traceback.format_exc())
             return ""
 
@@ -224,7 +213,7 @@ class Audio2TextDB:
                 return result[0]
             else:
                 return ""
-        except:
+        except Exception:
             return ""
         finally:
             audio2text_lock.release()
@@ -238,7 +227,7 @@ class Audio2TextDB:
             return True
         except sqlite3.IntegrityError:
             return False
-        except:
+        except Exception:
             return False
         finally:
             audio2text_lock.release()

@@ -81,7 +81,6 @@ class OpenIMContactDB(ArchiveBase):
                 UpdateTime 更新时间
         """
         result = []
-        return result
         if not self.open_flag:
             return result
         try:
@@ -106,11 +105,11 @@ class OpenIMContactDB(ArchiveBase):
             print(f'企业微信数据异常，尝试修复···')
             try:
                 os.remove(open_im_source_db_path)
-            except:
+            except Exception:
                 pass
             try:
                 shutil.copy(db_path_, open_im_source_db_path)
-            except:
+            except Exception:
                 pass
             return
         try:
@@ -130,7 +129,7 @@ class OpenIMContactDB(ArchiveBase):
         try:
             # 获取列名
             increase_update_data(db_path, self.cursor, self.DB, 'OpenIMContact', 'UserName', 0)
-        except:
+        except Exception:
             print(f"数据库操作错误: {traceback.format_exc()}")
             self.DB.rollback()
 

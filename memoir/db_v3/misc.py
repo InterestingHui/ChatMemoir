@@ -1,7 +1,6 @@
 import hashlib
 import io
 import os.path
-import shutil
 import sqlite3
 import time
 import traceback
@@ -63,7 +62,7 @@ class Misc(ArchiveBase):
                 cursor.execute(insert_sql, [username, md5_hash.hexdigest(), int(time.time()), img_binary])
             cursor.close()
             self.commit()  # 提交更改
-        except:
+        except Exception:
             logger.error(traceback.format_exc())
             return False
         return True
@@ -75,6 +74,6 @@ class Misc(ArchiveBase):
         try:
             # 获取列名
             increase_update_data(db_path, self.DB.cursor(), self.DB, 'ContactHeadImg1', 'usrName', 0)
-        except:
+        except Exception:
             print(f"数据库操作错误: {traceback.format_exc()}")
             self.DB.rollback()

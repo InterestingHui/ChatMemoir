@@ -51,7 +51,7 @@ def parse_video(xml_content):
             'length': video_dic.get('@playlength', 0),
             'size': video_dic.get('@length', 0)
         }
-    except:
+    except Exception:
         logger.error(f'视频解析失败\n{xml_content}')
     finally:
         return result

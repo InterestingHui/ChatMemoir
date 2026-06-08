@@ -50,7 +50,7 @@ def parser_link(xml_content):
             'appid': dic.get('appmsg', {}).get('@appid', ''),
             'sourceusername': dic.get('appmsg', {}).get('sourceusername', ''),
         }
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
     finally:
         return result
@@ -82,7 +82,7 @@ def parser_voip(xml_content):
             'duration': duration,
             'display_content': display_content
         }
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
     finally:
         return result
@@ -123,7 +123,7 @@ def parser_applet(xml_content):
             'app_icon': weappinfo.get('weappiconurl', ''),
             'cover_url': cover_url,
         }
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
     finally:
         return result
@@ -143,11 +143,11 @@ def parser_music(xml_content):
         link_url = appmsg.find("url").text  # 链接地址
         try:
             songalbumurl = appmsg.find('songalbumurl').text  # 封面地址
-        except:
+        except Exception:
             songalbumurl = ''
         try:
             website_name = root.find('appinfo').find('appname').text
-        except:
+        except Exception:
             website_name = 'QQ音乐'
         return {
             "type": msg_type,
@@ -195,7 +195,7 @@ def parser_business(xml_content):
             result['openimdesc'] = data.get('@openimdesc')
             result['openimdescicon'] = data.get('@openimdescicon')
         return result
-    except:
+    except Exception:
         logger.error(f'名片解析错误\n{traceback.format_exc()}\n{xml_content}')
         result.update(
             {
@@ -225,7 +225,7 @@ def parser_record_item(recorditem, output_dir, uid, msg_time, level=0):
     else:
         try:
             recorditem_dic = xmltodict.parse(xml_string)
-        except:
+        except Exception:
             xml_string = process_xml(xml_string)
             recorditem_dic = xmltodict.parse(xml_string)
     # logger.error(recorditem_dic)
@@ -250,7 +250,7 @@ def parser_record_item(recorditem, output_dir, uid, msg_time, level=0):
             try:
                 # 将字符串转换为datetime对象
                 dt = datetime.strptime(str_time, "%Y-%m-%d %H:%M:%S")
-            except:
+            except Exception:
 
                 if '上午' in str_time:
                     str_time = str_time.replace('上午 ', '上午')
@@ -269,13 +269,13 @@ def parser_record_item(recorditem, output_dir, uid, msg_time, level=0):
                         if dt is None:
                             raise ValueError("无法解析时间字符串")
                         timestamp = dt.timestamp()
-                    except:
+                    except Exception:
                         logger.error(f'未知的时间格式:{str_time}')
                         dt = datetime.strptime('1970-01-01 00:00:00', '%Y-%m-%d %H:%M:%S')
             try:
                 # 将datetime对象转换为时间戳
                 timestamp = int(dt.timestamp())
-            except:
+            except Exception:
                 logger.error(f'未知的时间格式:{str_time}')
                 dt = datetime.strptime('1970-01-01 00:00:00', '%Y-%m-%d %H:%M:%S')
 
@@ -455,7 +455,7 @@ def parser_record_item(recorditem, output_dir, uid, msg_time, level=0):
                 x = float(locitem.get('lng', '0'))
                 y = float(locitem.get('lat', '0'))
                 scale = float(locitem.get('scale', '0'))
-            except:
+            except Exception:
                 x, y, scale = 0, 0, 0
             result.append(
                 PositionMessage(
@@ -541,7 +541,7 @@ def parser_merged_messages(xml: str, output_dir, uid, msg_time, level=0):
     try:
         try:
             data_dic = xmltodict.parse(xml).get('msg', {})
-        except:
+        except Exception:
             new_xml1 = html.unescape(xml)
             new_xml2 = new_xml1.replace('&', '&amp;')
             # xml = xml.replace('&#x20;', ' ').replace('&#15;', '').replace('&#x0A;', '\n').replace('\xa0',' ')  # 搞不懂这帮人在干嘛，有些转义，有些不转义
@@ -556,7 +556,7 @@ def parser_merged_messages(xml: str, output_dir, uid, msg_time, level=0):
             'desc': desc,  # 描述
             'messages': parser_record_item(recorditem, output_dir, uid, msg_time, level),  # List[dict] 消息内容
         }
-    except:
+    except Exception:
         logger.error(xml)
         # logger.error(new_xml1)
         # logger.error(new_xml2)
@@ -587,7 +587,11 @@ def parser_wechat_video(xml_content):
         authIconUrl = dic_data.get('authIconUrl', '')
         title = dic_data.get('desc', '')
         media_count = dic_data.get('mediaCount', '0')
-        if media_count > '1':
+        try:
+            media_count = int(media_count)
+        except (ValueError, TypeError):
+            media_count = 0
+        if media_count > 1:
             cover = dic_data.get('mediaList', {}).get('media', [])[0].get('thumbUrl', '')
             duration = 0
         else:
@@ -602,7 +606,7 @@ def parser_wechat_video(xml_content):
             'authIconUrl': authIconUrl,
             'duration': duration
         }
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
     finally:
         return result
@@ -625,7 +629,7 @@ def parser_position(xml_content):
             result['label'] = data['location'].get('@label')
             result['poiname'] = data['location'].get('@poiname')
             result['scale'] = data['location'].get('@scale')
-    except:
+    except Exception:
         logger.error(f'位置分享解析错误\n{traceback.format_exc()} \n{xml_content}')
         result.update(
             {
@@ -667,101 +671,7 @@ def parser_reply(xml_content):
             'svrid': svrid,
             'refermsg_type': refermsg_type,
         }
-        # if refermsg_type == 1:
-        #     return {
-        #         # "type": msg_type,
-        #         "text": title,
-        #         'svrid': data.get('refermsg', {}).get('svrid', 0),
-        #         'refermsg_type': refermsg_type,
-        #         "refer_text": f"{refermsg_displayname}：{refermsg_content}",
-        #     }
-        # elif refermsg_type == 3:
-        #     return {
-        #         # "type": msg_type,
-        #         "text": title,
-        #         'svrid': data.get('refermsg', {}).get('svrid', 0),
-        #         'refermsg_type': refermsg_type,
-        #         "refer_text": f"{displayname}：【图片消息】",
-        #     }
-        # elif refermsg_type == 34:
-        #     return {
-        #         # "type": msg_type,
-        #         "text": title,
-        #         'svrid': data.get('refermsg', {}).get('svrid', 0),
-        #         'refermsg_type': refermsg_type,
-        #         "refer_text": f"{displayname}：【语音消息】",
-        #     }
-        # elif refermsg_type == 43:
-        #     return {
-        #         # "type": msg_type,
-        #         "text": title,
-        #         'svrid': data.get('refermsg', {}).get('svrid', 0),
-        #         'refermsg_type': refermsg_type,
-        #         "refer_text": f"{displayname}：【视频消息】",
-        #     }
-        # elif refermsg_type == 47:
-        #     return {
-        #         # "type": msg_type,
-        #         "text": title,
-        #         'svrid': data.get('refermsg', {}).get('svrid', 0),
-        #         'refermsg_type': refermsg_type,
-        #         "refer_text": f"{displayname}：【表情包】",
-        #     }
-        # elif refermsg_type == 49:
-        #     content = data.get('refermsg', {}).get('content', '')
-        #     content = xmltodict.parse(content).get('msg', {}).get('appmsg', {})
-        #     refermsg_content = content.get('title', '')
-        #     return {
-        #         # "type": msg_type,
-        #         "text": title,
-        #         'svrid': data.get('refermsg', {}).get('svrid', 0),
-        #         'refermsg_type': refermsg_type,
-        #         "refer_text": f"{displayname}：{refermsg_content}",
-        #         "url": content.get('url', ''),
-        #     }
-        # elif refermsg_type == 0:
-        #     return {
-        #         # "type": msg_type,
-        #         "text": title,
-        #         'svrid': data.get('refermsg', {}).get('svrid', 0),
-        #         'refermsg_type': refermsg_type,
-        #         "refer_text": data.get('refermsg', {}).get('ref_msg_text', ''),
-        #     }
-        # elif refermsg_type == 66:
-        #     return {
-        #         # "type": msg_type,
-        #         "text": title,
-        #         'svrid': data.get('refermsg', {}).get('svrid', 0),
-        #         'refermsg_type': refermsg_type,
-        #         "refer_text": f"{displayname}：【名片分享】",
-        #     }
-        # elif refermsg_type == 42:
-        #     return {
-        #         # "type": msg_type,
-        #         "text": title,
-        #         'svrid': data.get('refermsg', {}).get('svrid', 0),
-        #         'refermsg_type': refermsg_type,
-        #         "refer_text": f"{displayname}：【名片分享】",
-        #     }
-        # elif refermsg_type == 48:
-        #     position_dict = xmltodict.parse(data.get('refermsg', {}).get('content', '')).get('msg')
-        #     return {
-        #         # "type": msg_type,
-        #         "text": title,
-        #         'svrid': data.get('refermsg', {}).get('svrid', 0),
-        #         'refermsg_type': refermsg_type,
-        #         "refer_text": f"{displayname}：{position_dict['location'].get('@poiname')}",
-        #     }
-        # else:
-        #     logger.info(f'发现未知的引用消息\n{data}')
-        #     return {
-        #         # "type": msg_type,
-        #         "text": title,
-        #         'svrid': data.get('refermsg', {}).get('svrid', 0),
-        #         'refermsg_type': refermsg_type,
-        #         "refer_text": f"{displayname}：【其他消息】",
-        #     }
-    except:
+    except Exception:
         logger.error(f'{xml_content}\n\n引用消息解析错误\n{traceback.format_exc()}')
         return {
             # "type": msg_type,
@@ -787,12 +697,12 @@ def parser_transfer(xml_content):
             'fee_desc': data.get('wcpayinfo', {}).get('feedesc', ''),
             'receiver_username': data.get('wcpayinfo', {}).get('receiver_username', ''),
         }
-    except:
+    except Exception:
         logger.error(f'转账解析错误\n{traceback.format_exc()}')
         result.update(
             {
                 'type': 1,
-                'text': '【位置分享解析错误】'
+                'text': '【转账解析错误】'
             }
         )
     finally:
@@ -812,12 +722,12 @@ def parser_red_envelop(xml_content):
             'title': data.get('wcpayinfo', {}).get('receivertitle', ''),
             'inner_type': int(data.get('wcpayinfo', {}).get('innertype', '0')),
         }
-    except:
+    except Exception:
         logger.error(f'红包解析错误\n{traceback.format_exc()}')
         result.update(
             {
                 'type': 1,
-                'text': '【位置分享解析错误】'
+                'text': '【红包解析错误】'
             }
         )
     finally:
@@ -847,7 +757,7 @@ def parser_file(xml_content):
             'file_type': data.get('appattach', {}).get('fileext', ''),
             'app_name': data.get('appinfo', {}).get('appname', ''),
         }
-    except:
+    except Exception:
         logger.error(f'文件解析错误\n{traceback.format_exc()}\n{xml_content}')
     finally:
         return result
@@ -872,7 +782,7 @@ def parser_favorite_note(xml_content):
             'desc': data.get('des', ''),
             'recorditem': recorditem_dic,
         }
-    except:
+    except Exception:
         logger.error(f'笔记解析错误\n{traceback.format_exc()}')
     finally:
         return result
@@ -896,7 +806,7 @@ def parser_pat(xml_content):
             'chat_username': patinfo.get('chatusername', ''),
             'template': patinfo.get('template', ''),
         }
-    except:
+    except Exception:
         logger.error(f'拍一拍解析错误\n{traceback.format_exc()}\n{xml_content}')
     finally:
         return result
@@ -934,7 +844,7 @@ def wx_sport(xml):
             'rank_list': rank_list,
             'data': f'{dic_data}'
         }
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
         logger.error(dic_data)
         return []
@@ -1025,7 +935,7 @@ def wx_EMS_data(bytesExtra, compress_content_):
             'update_time': update_time,
             'data': f'{dic_data}',
         }
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
         logger.error(dic_data)
         return {}
@@ -1118,7 +1028,7 @@ def wx_pdd_data(bytesExtra, compress_content_):
                     user_name += value
                 elif key == '订单金额：':
                     order_money += value
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
         logger.error(dic_data)
     finally:
@@ -1187,7 +1097,7 @@ def wx_collection_data(xml):
             'more': more
         }
 
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
         logger.error(dic_data)
         return {}
@@ -1241,7 +1151,7 @@ def wx_pay_data(xml):
             'data': f'{dic_data}',
             'more': more
         }
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
         logger.error(dic_data)
         return {}

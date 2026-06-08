@@ -25,7 +25,7 @@ def parser_audio(xml_content):
             'audio_length': voice_length,
             'audio_text': audio_text
         }
-    except:
+    except Exception:
         if xml_content and ':' in xml_content:
             voice_length = int(xml_content.split(':')[1])
             result = {

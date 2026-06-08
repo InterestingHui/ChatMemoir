@@ -42,6 +42,6 @@ class OpenIMMediaDB(ArchiveBase):
         try:
             # 获取列名
             increase_data(db_path, self.cursor, self.DB, 'OpenIMMedia', 'Reserved0', 1)
-        except:
+        except Exception:
             print(f"数据库操作错误: {traceback.format_exc()}")
             self.DB.rollback()

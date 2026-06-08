@@ -58,7 +58,7 @@ def get_exe_bit(file_path):
                 return 64
             else:
                 return 64
-    except:
+    except Exception:
         return 64
 
 

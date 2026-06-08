@@ -77,7 +77,7 @@ class ArchiveBase:
                 else:
                     if self.DB:
                         self.DB.close()
-            except:
+            except Exception:
                 print(traceback.format_exc())
             finally:
                 pass

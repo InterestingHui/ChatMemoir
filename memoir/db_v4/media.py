@@ -66,30 +66,19 @@ class MediaDB(ArchiveBase):
             # 调用系统上的 ffmpeg 可执行文件
             # 获取 FFmpeg 可执行文件的路径
             ffmpeg_path = get_ffmpeg_path()
-            # # 调用 FFmpeg
-            if os.path.exists(ffmpeg_path):
-                cmd = f'''"{ffmpeg_path}" -loglevel quiet -y -f s16le -i "{pcm_path}" -ar 44100 -ac 1 "{mp3_path}"'''
-                # system(cmd)
-                # 使用subprocess.run()执行命令
-                subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            else:
-                # 源码运行的时候下面的有效
-                # 这里不知道怎么捕捉异常
-                cmd = f'''"{os.path.join(os.getcwd(), 'app', 'resources', 'data', 'ffmpeg.exe')}" -loglevel quiet -y -f s16le -i "{pcm_path}" -ar 44100 -ac 1 "{mp3_path}"'''
-                # system(cmd)
-                # 使用subprocess.run()执行命令
-                subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if not os.path.exists(ffmpeg_path):
+                ffmpeg_path = os.path.join(os.getcwd(), 'app', 'resources', 'data', 'ffmpeg.exe')
+            ffmpeg_args = [ffmpeg_path, '-loglevel', 'quiet', '-y', '-f', 's16le', '-i', pcm_path, '-ar', '44100', '-ac', '1', mp3_path]
+            subprocess.run(ffmpeg_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if os.path.exists(silk_path):
                 os.remove(silk_path)
             if os.path.exists(pcm_path):
                 os.remove(pcm_path)
         except Exception as e:
-            print(f"Error: {e}")
             logger.error(f'语音错误\n{traceback.format_exc()}')
-            cmd = f'''"{os.path.join(os.getcwd(), 'app', 'resources', 'data', 'ffmpeg.exe')}" -loglevel quiet -y -f s16le -i "{pcm_path}" -ar 44100 -ac 1 "{mp3_path}"'''
-            # system(cmd)
-            # 使用subprocess.run()执行命令
-            subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            ffmpeg_path = os.path.join(os.getcwd(), 'app', 'resources', 'data', 'ffmpeg.exe')
+            ffmpeg_args = [ffmpeg_path, '-loglevel', 'quiet', '-y', '-f', 's16le', '-i', pcm_path, '-ar', '44100', '-ac', '1', mp3_path]
+            subprocess.run(ffmpeg_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         finally:
             return mp3_path
 
@@ -108,7 +97,7 @@ class MediaDB(ArchiveBase):
                     increase_data(db_path, cursor, db, 'VoiceInfo', 'svr_id')
                     increase_data(db_path, cursor, db, 'Name2Id', 'user_name')
                     increase_update_data(db_path, cursor, db, 'Timestamp', 'timestamp')
-                except:
+                except Exception:
                     print(f"数据库操作错误: {traceback.format_exc()}")
                     db.rollback()
 

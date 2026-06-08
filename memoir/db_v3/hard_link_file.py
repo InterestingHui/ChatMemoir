@@ -80,7 +80,7 @@ class HardLinkFile(ArchiveBase):
             # 获取列名
             increase_data(db_path, self.cursor, self.DB, 'HardLinkFileAttribute', 'Md5Hash', 0)
             increase_data(db_path, self.cursor, self.DB, 'HardLinkFileID', 'DirId', 0)
-        except:
+        except Exception:
             print(f"数据库操作错误: {traceback.format_exc()}")
             self.DB.rollback()
 

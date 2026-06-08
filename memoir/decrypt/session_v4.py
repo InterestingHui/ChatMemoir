@@ -66,20 +66,32 @@ class MEMORY_BASIC_INFORMATION(ctypes.Structure):
 PROCESS_VM_READ = 0x0010
 PROCESS_QUERY_INFORMATION = 0x0400
 
-# Load Windows DLLs
-kernel32 = ctypes.windll.kernel32
+# Load Windows DLLs with proper type annotations
+kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+
+OpenProcess = kernel32.OpenProcess
+OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+OpenProcess.restype = wintypes.HANDLE
+
+ReadProcessMemory = kernel32.ReadProcessMemory
+ReadProcessMemory.argtypes = [wintypes.HANDLE, wintypes.LPCVOID, wintypes.LPVOID, ctypes.c_size_t,
+                              ctypes.POINTER(ctypes.c_size_t)]
+ReadProcessMemory.restype = wintypes.BOOL
+
+CloseHandle = kernel32.CloseHandle
+CloseHandle.argtypes = [wintypes.HANDLE]
+CloseHandle.restype = wintypes.BOOL
 
 
-# 打开目标进程
 def open_process(pid):
-    return ctypes.windll.kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
+    return OpenProcess(PROCESS_ALL_ACCESS, False, pid)
 
 
 # 读取目标进程内存
 def read_process_memory(process_handle, address, size):
     buffer = ctypes.create_string_buffer(size)
     bytes_read = ctypes.c_size_t(0)
-    success = ctypes.windll.kernel32.ReadProcessMemory(
+    success = ReadProcessMemory(
         process_handle,
         ctypes.c_void_p(address),
         buffer,
@@ -96,7 +108,7 @@ def get_memory_regions(process_handle):
     regions = []
     mbi = MEMORY_BASIC_INFORMATION()
     address = 0
-    while ctypes.windll.kernel32.VirtualQueryEx(
+    while kernel32.VirtualQueryEx(
             process_handle,
             ctypes.c_void_p(address),
             ctypes.byref(mbi),
@@ -135,9 +147,7 @@ rule GetKeyAddrStub
 def read_string(data: bytes, offset, size):
     try:
         return data[offset:offset + size].decode('utf-8')
-    except:
-        # print(data[offset:offset + size])
-        # print(traceback.format_exc())
+    except (UnicodeDecodeError, IndexError):
         return ''
 
 
@@ -169,54 +179,26 @@ def read_bytes(data: bytes, offset, size):
 #         return mem_file.read(size)
 
 
-# 导入 Windows API 函数
-kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-
-OpenProcess = kernel32.OpenProcess
-OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-OpenProcess.restype = wintypes.HANDLE
-
-ReadProcessMemory = kernel32.ReadProcessMemory
-ReadProcessMemory.argtypes = [wintypes.HANDLE, wintypes.LPCVOID, wintypes.LPVOID, ctypes.c_size_t,
-                              ctypes.POINTER(ctypes.c_size_t)]
-ReadProcessMemory.restype = wintypes.BOOL
-
-CloseHandle = kernel32.CloseHandle
-CloseHandle.argtypes = [wintypes.HANDLE]
-CloseHandle.restype = wintypes.BOOL
-
-
 def read_bytes_from_pid(pid: int, addr: int, size: int):
-    # 打开进程
     hprocess = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
     if not hprocess:
-        raise Exception(f"Failed to open process with PID {pid}")
-    buffer = b''
+        raise OSError(f"Failed to open process with PID {pid}")
     try:
-        # 创建缓冲区
         buffer = ctypes.create_string_buffer(size)
-
-        # 读取内存
         bytes_read = ctypes.c_size_t(0)
         success = ReadProcessMemory(hprocess, addr, buffer, size, ctypes.byref(bytes_read))
         if not success:
-            CloseHandle(hprocess)
             return b''
-            raise Exception(f"Failed to read memory at address {hex(addr)}")
-
-        # 关闭句柄
+        return bytes(buffer)
+    finally:
         CloseHandle(hprocess)
-    except:
-        pass
-    # 返回读取的字节数组
-    return bytes(buffer)
 
 
 def read_string_from_pid(pid: int, addr: int, size: int):
     bytes0 = read_bytes_from_pid(pid, addr, size)
     try:
         return bytes0.decode('utf-8')
-    except:
+    except (UnicodeDecodeError, AttributeError):
         return ''
 
 
@@ -666,7 +648,7 @@ def dump_session_info_v4(pid) -> SessionInfo | None:
     session_info.data_dir = get_wx_dir(process_handle)
     if not session_info.data_dir:
         logger.error("[dump_session_info_v4] Could not find WeChat data directory")
-        ctypes.windll.kernel32.CloseHandle(process_handle)
+        CloseHandle(process_handle)
         process.join()
         return session_info
 
@@ -732,7 +714,7 @@ def dump_session_info_v4(pid) -> SessionInfo | None:
         else:
             logger.error("[dump_session_info_v4] No .db file found for YARA verification")
 
-    ctypes.windll.kernel32.CloseHandle(process_handle)
+    CloseHandle(process_handle)
     session_info.uid = '_'.join(session_info.data_dir.split('\\')[-3].split('_')[0:-1])
     session_info.data_dir = '\\'.join(session_info.data_dir.split('\\')[:-2])
     process.join()

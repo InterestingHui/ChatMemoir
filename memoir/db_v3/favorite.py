@@ -30,7 +30,7 @@ class Favorite:
             self.cursor.execute(sql)
             res = self.cursor.fechall()
             self.DB.commit()
-        except:
+        except Exception:
             res = []
         finally:
             lock.release()

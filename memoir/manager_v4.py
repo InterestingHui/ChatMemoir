@@ -13,7 +13,7 @@ import os
 import re
 from concurrent.futures import ProcessPoolExecutor, as_completed, ThreadPoolExecutor
 from datetime import date, datetime
-from multiprocessing import Pool, cpu_count
+from multiprocessing import cpu_count
 from typing import Tuple, List, Any
 
 import zstandard as zstd
@@ -328,7 +328,7 @@ class ArchiveV4(ArchiveInterface):
                 signature = detail.get('signature', '')
                 region = (detail.get('country', ''), detail.get('province', ''), detail.get('city', ''))
                 label_list = self.contact_db.get_labels(detail.get('labelList')).split(',')
-            except:
+            except Exception:
                 pass
                 # logger.error(f'{uid} {contact_info_list[5]}联系人解析失败\n{contact_info_list[10]}')
         contact = Contact(

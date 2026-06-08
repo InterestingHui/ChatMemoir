@@ -51,7 +51,7 @@ class Audio2TextDB(ArchiveBase):
             return True
         except sqlite3.IntegrityError:
             return False
-        except:
+        except Exception:
             return False
 
     def merge(self, db_path):
@@ -61,6 +61,6 @@ class Audio2TextDB(ArchiveBase):
         try:
             # 获取列名
             increase_data(db_path, self.cursor, self.DB, 'Audio2Text', 'msgSvrId')
-        except:
+        except Exception:
             print(f"数据库操作错误: {traceback.format_exc()}")
             self.DB.rollback()

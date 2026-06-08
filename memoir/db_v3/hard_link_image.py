@@ -39,7 +39,7 @@ def get_md5_from_xml(content, type_="img"):
             md5_value = None
         # print(md5_value)
         return md5_value
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
         logger.error(content)
         return None
@@ -148,7 +148,7 @@ class HardLinkImage(ArchiveBase):
             # 获取列名
             increase_data(db_path, self.cursor, self.DB, 'HardLinkImageAttribute', 'Md5Hash', 0)
             increase_data(db_path, self.cursor, self.DB, 'HardLinkImageID', 'DirId', 0)
-        except:
+        except Exception:
             print(f"数据库操作错误: {traceback.format_exc()}")
             self.DB.rollback()
 

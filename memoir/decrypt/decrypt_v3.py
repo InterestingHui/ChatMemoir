@@ -12,14 +12,12 @@
 # 为了保证数据部分长度是16字节即AES块大小的整倍数，每一页的末尾将填充一段空字节，使得保留字段的长度为48字节。
 # 综上，加密文件结构为第一页4KB数据前16字节为盐值，紧接着4032字节数据，再加上16字节IV和20字节HMAC以及12字节空字节；而后的页均是4048字节长度的加密数据段和48字节的保留段。
 # -------------------------------------------------------------------------------
-import argparse
 import hmac
 import hashlib
 import os
 import stat
 import traceback
 from concurrent.futures import ProcessPoolExecutor
-from typing import Union, List
 from Crypto.Cipher import AES
 
 from memoir.log import logger
@@ -52,7 +50,7 @@ def decrypt_db_file_v3(key: str, db_path, out_path):
     try:
         with open(db_path, "rb") as file:
             blist = file.read()
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
         logger.info(db_path + '->' + out_path)
         return False, 'error'
@@ -98,7 +96,7 @@ def decode_wrapper(tasks):
 
 def decrypt_db_files(key, src_dir: str, dest_dir: str, skip_existing: bool = True):
     if not os.path.exists(src_dir):
-        print(f"源文件夹 {src_dir} 不存在")
+        logger.info(f"源文件夹 {src_dir} 不存在")
         return
 
     if not os.path.exists(dest_dir):
@@ -132,9 +130,9 @@ def decrypt_db_files(key, src_dir: str, dest_dir: str, skip_existing: bool = Tru
                 decrypt_tasks.append((key, src_file_path, dest_file_path))
                 # decrypt_db_file_v3(key, src_file_path, dest_file_path)
     if skipped:
-        print(f"跳过 {skipped} 个未变化的数据库文件")
+        logger.info(f"跳过 {skipped} 个未变化的数据库文件")
     if not decrypt_tasks:
-        print("所有数据库已是最新，无需重新解密")
+        logger.info("所有数据库已是最新，无需重新解密")
         return
     with ProcessPoolExecutor(max_workers=16) as executor:
         results = list(executor.map(decode_wrapper, decrypt_tasks))  # 使用顶层定义的函数

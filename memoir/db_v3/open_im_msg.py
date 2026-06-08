@@ -227,6 +227,6 @@ class OpenIMMsgDB(ArchiveBase):
         try:
             # 获取列名
             increase_data(db_path, self.cursor, self.DB, 'ChatCRMsg', 'MsgSvrID', 1, exclude_column='localId')
-        except:
+        except Exception:
             print(f"数据库操作错误: {traceback.format_exc()}")
             self.DB.rollback()

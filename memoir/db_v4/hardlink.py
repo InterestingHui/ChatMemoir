@@ -43,7 +43,7 @@ def get_md5_from_xml(content, type_="img"):
             md5_value = None
         # print(md5_value)
         return md5_value
-    except:
+    except Exception:
         logger.error(traceback.format_exc())
         logger.error(content)
         return None
@@ -60,7 +60,7 @@ class HardLinkDB(ArchiveBase):
             cursor.execute(sql)
             self.commit()
             cursor.close()
-        except:
+        except Exception:
             pass
 
         sql = "CREATE INDEX IF NOT EXISTS video_hardlink_info_v4_md5 ON video_hardlink_info_v4(md5);"
@@ -69,7 +69,7 @@ class HardLinkDB(ArchiveBase):
             cursor.execute(sql)
             self.commit()
             cursor.close()
-        except:
+        except Exception:
             pass
 
         sql = "CREATE INDEX IF NOT EXISTS file_hardlink_info_v4_md5 ON file_hardlink_info_v4(md5);"
@@ -78,7 +78,7 @@ class HardLinkDB(ArchiveBase):
             cursor.execute(sql)
             self.commit()
             cursor.close()
-        except:
+        except Exception:
             pass
 
     def get_image_by_md5(self, md5: str):
@@ -272,7 +272,7 @@ class HardLinkDB(ArchiveBase):
             increase_data(db_path, self.cursor, self.DB, 'image_hardlink_info_v4', 'md5', exclude_column='_rowid_')
             increase_data(db_path, self.cursor, self.DB, 'video_hardlink_info_v4', 'md5', exclude_column='_rowid_')
             increase_data(db_path, self.cursor, self.DB, 'dir2id', 'username')
-        except:
+        except Exception:
             print(f"数据库操作错误: {traceback.format_exc()}")
             self.DB.rollback()
 

@@ -44,7 +44,7 @@ class MicroMsg(ArchiveBase):
                 return result[0]
             else:
                 return ''
-        except:
+        except Exception:
             return ''
 
     def get_labels(self, label_id_list) -> str:
@@ -120,7 +120,7 @@ class MicroMsg(ArchiveBase):
             cursor = self.DB.cursor()
             cursor.execute(update_sql, [remark, username])
             self.commit()  # 提交更改
-        except:
+        except Exception:
             return False
         return True
 
@@ -153,7 +153,7 @@ class MicroMsg(ArchiveBase):
             cursor.execute(sql1, [contact.uid, contact.alias, contact.remark, contact.nickname])
             cursor.execute(sql2, [contact.uid, contact.small_head_img_url, contact.big_head_img_url])
             self.commit()
-        except:
+        except Exception:
             logger.error(traceback.format_exc())
         return True
 
@@ -187,7 +187,7 @@ class MicroMsg(ArchiveBase):
             increase_update_data(db_path, self.cursor, self.DB, 'ContactHeadImgUrl', 'usrName', 0)
             increase_update_data(db_path, self.cursor, self.DB, 'ContactLabel', 'LabelId', 0)
             increase_update_data(db_path, self.cursor, self.DB, 'Session', 'strUsrName', 0)
-        except:
+        except Exception:
             print(f"数据库操作错误: {traceback.format_exc()}")
             self.DB.rollback()
 

@@ -48,7 +48,7 @@ class Emotion(ArchiveBase):
         try:
             cursor.execute(sql, [md5])
             return cursor.fetchone()[0]
-        except:
+        except Exception:
             md5 = md5.upper()
             sql = f"""
                 select {"Thumb" if thumb else "Data"}
@@ -83,7 +83,7 @@ class Emotion(ArchiveBase):
         try:
             cursor.execute(sql, [md5])
             return cursor.fetchone()[0]
-        except:
+        except Exception:
             return ""
 
     def get_emoji_desc(self, md5: str):
@@ -99,7 +99,7 @@ class Emotion(ArchiveBase):
             if result:
                 return result[0][6:].decode('utf-8')
             return ""
-        except:
+        except Exception:
             return ""
 
     def get_emoji_data(self, md5: str, thumb=False):
@@ -115,7 +115,7 @@ class Emotion(ArchiveBase):
             if result:
                 return result[0]
             return b""
-        except:
+        except Exception:
             return b""
 
     def merge(self, db_path):
@@ -130,6 +130,6 @@ class Emotion(ArchiveBase):
             increase_data(db_path, cursor, self.DB, 'EmotionItem', 'MD5', 1, 'localId')
             increase_data(db_path, cursor, self.DB, 'EmotionPackageItem', 'ProductId', 0, 'localId')
             increase_data(db_path, cursor, self.DB, 'EmotionOrderInfo', 'MD5', 0, 'localId')
-        except:
+        except Exception:
             print(f"数据库操作错误: {traceback.format_exc()}")
             self.DB.rollback()

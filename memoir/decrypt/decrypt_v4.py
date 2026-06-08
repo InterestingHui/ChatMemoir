@@ -8,9 +8,11 @@ from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA512
 
+from memoir.log import logger
+
 # Constants
 IV_SIZE = 16
-HMAC_SHA256_SIZE = 64
+HMAC_SHA512_SIZE = 64
 KEY_SIZE = 32
 AES_BLOCK_SIZE = 16
 ROUND_COUNT = 256000
@@ -21,7 +23,7 @@ SQLITE_HEADER = b"SQLite format 3"
 
 def decrypt_db_file_v4(pkey, in_db_path, out_db_path):
     if not os.path.exists(in_db_path):
-        print(f"【!!!】{in_db_path} does not exist.")
+        logger.info(f"【!!!】{in_db_path} does not exist.")
         return False
 
     # 移除已有输出文件的只读属性，避免 PermissionError
@@ -34,7 +36,7 @@ def decrypt_db_file_v4(pkey, in_db_path, out_db_path):
             # Read salt from the first SALT_SIZE bytes
             salt = f_in.read(SALT_SIZE)
             if not salt:
-                print("File is empty or corrupted.")
+                logger.info("File is empty or corrupted.")
                 return False
 
             mac_salt = bytes(x ^ 0x3a for x in salt)
@@ -50,8 +52,8 @@ def decrypt_db_file_v4(pkey, in_db_path, out_db_path):
             f_out.write(SQLITE_HEADER)
             f_out.write(b'\x00')
 
-            # Reserve space for IV_SIZE + HMAC_SHA256_SIZE, rounded to a multiple of AES_BLOCK_SIZE
-            reserve = IV_SIZE + HMAC_SHA256_SIZE
+            # Reserve space for IV_SIZE + HMAC_SHA512_SIZE, rounded to a multiple of AES_BLOCK_SIZE
+            reserve = IV_SIZE + HMAC_SHA512_SIZE
             reserve = ((reserve + AES_BLOCK_SIZE - 1) // AES_BLOCK_SIZE) * AES_BLOCK_SIZE
 
             # Process each page
@@ -88,7 +90,7 @@ def decrypt_db_file_v4(pkey, in_db_path, out_db_path):
                 # Check if HMAC matches
                 hash_mac_start_offset = end - reserve + IV_SIZE
                 if hash_mac != page[hash_mac_start_offset:hash_mac_start_offset + len(hash_mac)]:
-                    print(f'Key error for {in_db_path}')
+                    logger.info(f'Key error for {in_db_path}')
                     return False
 
                 # AES-256-CBC decryption
@@ -102,7 +104,7 @@ def decrypt_db_file_v4(pkey, in_db_path, out_db_path):
 
                 cur_page += 1
 
-        print("Decryption completed.")
+        logger.info("Decryption completed.")
         success = True
         return True
     finally:
@@ -129,7 +131,7 @@ def decrypt_db_files(key, src_dir: str, dest_dir: str, key_map: dict = None,
     Returns: (total, failed) counts for caller diagnostics.
     """
     if not os.path.exists(src_dir):
-        print(f"源文件夹 {src_dir} 不存在")
+        logger.info(f"源文件夹 {src_dir} 不存在")
         return 0, 0
 
     if not os.path.exists(dest_dir):
@@ -182,9 +184,9 @@ def decrypt_db_files(key, src_dir: str, dest_dir: str, key_map: dict = None,
                     db_key = key
                 decrypt_tasks.append((db_key, src_file_path, dest_file_path))
     if skipped:
-        print(f"跳过 {skipped} 个未变化的数据库文件")
+        logger.info(f"跳过 {skipped} 个未变化的数据库文件")
     if not decrypt_tasks:
-        print("所有数据库已是最新，无需重新解密")
+        logger.info("所有数据库已是最新，无需重新解密")
         return skipped, 0
 
     total = len(decrypt_tasks)
@@ -204,5 +206,5 @@ def decrypt_db_files(key, src_dir: str, dest_dir: str, key_map: dict = None,
                 progress_callback(completed, total, filename)
 
     if failed:
-        print(f"警告: {failed}/{total} 个数据库解密失败")
+        logger.info(f"警告: {failed}/{total} 个数据库解密失败")
     return total, failed
