@@ -63,6 +63,8 @@ from memoir.decrypt.session_v4 import (
     read_num,
     read_bytes,
     get_key_,
+    verify_key,
+    check_chunk,
 )
 from memoir.decrypt.decrypt_v4 import (
     decrypt_db_file_v4,
@@ -429,3 +431,150 @@ class TestDecryptDbFiles:
             total, failed = decrypt_db_files(key_hex, src, dest, progress_callback=cb)
             assert len(callbacks) >= 1
             assert callbacks[0][0] == 0  # initial call with current=0
+
+
+# ── Tests: verify_key ──
+
+class TestVerifyKey:
+    def test_correct_key(self):
+        from multiprocessing import Value
+        key = os.urandom(KEY_SIZE)
+        salt = os.urandom(SALT_SIZE)
+        page = _make_encrypted_page(key, salt, page_num=0)
+        flag = Value('b', False, lock=True)
+        result = verify_key(key, page, flag, None)
+        assert result == key
+        assert bool(flag.value)
+
+    def test_wrong_length_key(self):
+        from multiprocessing import Value
+        salt = os.urandom(SALT_SIZE)
+        key = os.urandom(KEY_SIZE)
+        page = _make_encrypted_page(key, salt, page_num=0)
+        flag = Value('b', False, lock=True)
+        assert verify_key(b'\x00' * 16, page, flag, None) is False
+        assert verify_key(b'\x00' * 31, page, flag, None) is False
+        assert verify_key(b'\x00' * 33, page, flag, None) is False
+        assert verify_key(b'', page, flag, None) is False
+
+    def test_wrong_key(self):
+        from multiprocessing import Value
+        key = os.urandom(KEY_SIZE)
+        salt = os.urandom(SALT_SIZE)
+        page = _make_encrypted_page(key, salt, page_num=0)
+        flag = Value('b', False, lock=True)
+        assert verify_key(os.urandom(KEY_SIZE), page, flag, None) is False
+        assert not bool(flag.value)
+
+    def test_flag_already_set_skips(self):
+        from multiprocessing import Value
+        key = os.urandom(KEY_SIZE)
+        salt = os.urandom(SALT_SIZE)
+        page = _make_encrypted_page(key, salt, page_num=0)
+        flag = Value('b', True, lock=True)
+        assert verify_key(key, page, flag, None) is False
+
+
+# ── Tests: check_chunk ──
+
+class TestCheckChunk:
+    def test_correct_chunk(self):
+        key = os.urandom(KEY_SIZE)
+        salt = os.urandom(SALT_SIZE)
+        page = _make_encrypted_page(key, salt, page_num=0)
+        assert check_chunk(key, page) == key
+
+    def test_wrong_chunk(self):
+        key = os.urandom(KEY_SIZE)
+        salt = os.urandom(SALT_SIZE)
+        page = _make_encrypted_page(key, salt, page_num=0)
+        assert check_chunk(os.urandom(KEY_SIZE), page) is False
+
+    def test_shared_flag_set_skips(self):
+        from multiprocessing import Value
+        key = os.urandom(KEY_SIZE)
+        salt = os.urandom(SALT_SIZE)
+        page = _make_encrypted_page(key, salt, page_num=0)
+        flag = Value('b', True, lock=True)
+        assert check_chunk(key, page, shared_flag=flag) is False
+
+    def test_no_shared_flag(self):
+        key = os.urandom(KEY_SIZE)
+        salt = os.urandom(SALT_SIZE)
+        page = _make_encrypted_page(key, salt, page_num=0)
+        assert check_chunk(key, page) == key
+
+
+# ── Tests: get_key_ passphrase mode ──
+
+class TestGetKeyPassphrase:
+    def test_finds_passphrase(self):
+        passphrase = os.urandom(KEY_SIZE)
+        salt = os.urandom(SALT_SIZE)
+        derived_key = PBKDF2(passphrase, salt, dkLen=KEY_SIZE, count=ROUND_COUNT,
+                             hmac_hash_module=SHA512)
+        page = _make_encrypted_page(derived_key, salt, page_num=0)
+        candidates = [os.urandom(KEY_SIZE), passphrase]
+        result, is_passphrase = get_key_(candidates, page)
+        assert result == passphrase.hex()
+        assert is_passphrase is True
+
+    def test_raw_key_before_passphrase(self):
+        """Raw key should match before passphrase (cheaper check first)."""
+        key = os.urandom(KEY_SIZE)
+        salt = os.urandom(SALT_SIZE)
+        page = _make_encrypted_page(key, salt, page_num=0)
+        # First candidate is valid as raw key — should stop there
+        candidates = [key, os.urandom(KEY_SIZE)]
+        result, is_passphrase = get_key_(candidates, page)
+        assert result == key.hex()
+        assert is_passphrase is False
+
+
+# ── Tests: decrypt_db_file_v4 edge cases ──
+
+class TestDecryptDbFileV4EdgeCases:
+    def test_empty_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = os.path.join(tmpdir, 'empty.db')
+            out_path = os.path.join(tmpdir, 'out.db')
+            with open(in_path, 'wb') as f:
+                pass
+            result = decrypt_db_file_v4('00' * 32, in_path, out_path)
+            assert result is False
+
+    def test_file_smaller_than_page(self):
+        key = os.urandom(KEY_SIZE)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = os.path.join(tmpdir, 'small.db')
+            out_path = os.path.join(tmpdir, 'out.db')
+            with open(in_path, 'wb') as f:
+                f.write(os.urandom(100))
+            result = decrypt_db_file_v4(key.hex(), in_path, out_path)
+            assert result is False
+
+    def test_invalid_hex_key(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = os.path.join(tmpdir, 'test.db')
+            out_path = os.path.join(tmpdir, 'out.db')
+            with open(in_path, 'wb') as f:
+                f.write(os.urandom(PAGE_SIZE))
+            with pytest.raises((ValueError, Exception)):
+                decrypt_db_file_v4('not-a-valid-hex-key', in_path, out_path)
+
+    def test_requires_existing_output_dir(self):
+        """decrypt_db_file_v4 does not create parent directories."""
+        key = os.urandom(KEY_SIZE)
+        salt = os.urandom(SALT_SIZE)
+        key_hex = key.hex()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = os.path.join(tmpdir, 'test.db')
+            out_path = os.path.join(tmpdir, 'new_dir', 'test_dec.db')
+
+            page = _make_encrypted_page(key, salt, page_num=0)
+            with open(in_path, 'wb') as f:
+                f.write(page)
+
+            with pytest.raises(FileNotFoundError):
+                decrypt_db_file_v4(key_hex, in_path, out_path)

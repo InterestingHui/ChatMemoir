@@ -107,7 +107,7 @@ class DocxExporter(ExporterBase):
                     run = content.paragraphs[0].add_run()
                     run.add_picture(image_path, height=shared.Inches(2), width=shared.Inches(2))
                     doc.add_paragraph()
-                except:
+                except Exception:
                     print("Error!image")
                     logger.error(image_path)
                     logger.error(traceback.format_exc())
@@ -251,7 +251,7 @@ class DocxExporter(ExporterBase):
             '''插入头像，设置头像宽度'''
             try:
                 avatar.add_picture(avatar_path, width=shared.Inches(0.5))
-            except:
+            except Exception:
                 logger.error('头像插入失败')
             '''设置单元格宽度跟头像一致'''
             table.cell(0, 1).width = shared.Inches(0.5)
@@ -262,7 +262,7 @@ class DocxExporter(ExporterBase):
             avatar = table.cell(0, 0).paragraphs[0].add_run()
             try:
                 avatar.add_picture(avatar_path, width=shared.Inches(0.5))
-            except:
+            except Exception:
                 logger.error('头像插入失败')
             '''设置单元格宽度'''
             table.cell(0, 0).width = shared.Inches(0.5)
@@ -319,7 +319,7 @@ class DocxExporter(ExporterBase):
                     avatar = self.get_avatar_path(message, True)
                     self.add_text_message(doc, avatar, message.is_sender, message.to_text(),
                                           message.display_name if self.contact.is_chatroom() else '')
-                except:
+                except Exception:
                     pass
             if selected_msg_cnt % self.msg_num_per_docx == 0 or index == total_steps - 1:
                 filename = os.path.join(origin_path, f"{self.contact.remark}_{docx_num}.docx")
@@ -329,7 +329,7 @@ class DocxExporter(ExporterBase):
                 except PermissionError:
                     filename = os.path.join(origin_path, f"{self.contact.remark}_{docx_num}_{str(time.time())}.docx")
                     doc.save(filename)
-                except:
+                except Exception:
                     pass
                 newdoc()
         self.update_progress_callback(1)

@@ -184,7 +184,7 @@ class ExcelExporter(ExporterBase):
             try:
                 new_sheet.append(self.message_to_list(message))
                 self.row += 1
-            except:
+            except Exception:
                 logger.error(traceback.format_exc())
                 continue
             type_ = message.type
@@ -287,7 +287,7 @@ class ExcelExporter(ExporterBase):
 
                         # 设置行高
                         new_sheet.row_dimensions[row].height = scaled_height * 0.75  # 0.75 是像素到 Excel 单位的转换因子
-                    except:
+                    except Exception:
                         logger.error(traceback.format_exc())
                         pass
         # 获取列的字母表示（A、B、C...）
@@ -330,7 +330,7 @@ class ExcelExporter(ExporterBase):
                 continue
             try:
                 new_sheet.append([*message.str_time.split(' '), message.title, message.description, message.href])
-            except:
+            except Exception:
                 logger.error(traceback.format_exc())
                 continue
         # 获取列的字母表示（A、B、C...）
@@ -388,7 +388,7 @@ class ExcelExporter(ExporterBase):
                         card_data.get('more')
                     ]
                 )
-            except:
+            except Exception:
                 logger.error(traceback.format_exc())
                 continue
         # 获取列的字母表示（A、B、C...）
@@ -438,7 +438,7 @@ class ExcelExporter(ExporterBase):
                         card_data.get('summary'), card_data.get('more')
                     ]
                 )
-            except:
+            except Exception:
                 logger.error(traceback.format_exc())
                 continue
         # 获取列的字母表示（A、B、C...）
@@ -495,7 +495,7 @@ class ExcelExporter(ExporterBase):
                         champion_name, champion.get('score')
                     ]
                 )
-            except:
+            except Exception:
                 logger.error(traceback.format_exc())
                 continue
         # 获取列的字母表示（A、B、C...）

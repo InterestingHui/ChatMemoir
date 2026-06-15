@@ -206,7 +206,7 @@ class ExporterBase(ExporterBaseBase):
         try:
             with open(avatar_path, 'wb') as f:
                 f.write(avatar_buffer)
-        except:
+        except OSError:
             logger.error(traceback.format_exc())
         finally:
             return avatar_path
@@ -488,7 +488,7 @@ def copy_file(source_file, destination_file):
         try:
             # logger.info(f'开始复制:{destination_file}')
             shutil.copy(source_file, destination_file)
-        except:
+        except OSError:
             pass
             # logger.error(traceback.format_exc())
         finally:

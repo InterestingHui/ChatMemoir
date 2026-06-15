@@ -112,6 +112,7 @@
 | `memoir/model/` | Data models (Contact, Message, Me, MessageType) | `message.py`, `contact.py`, `db_model.py` |
 | `memoir/parser/` | Message content parsers (XML, protobuf, audio, emoji, links) | `parser_v3.py`, `parser_v4.py`, `link_parser.py` |
 | `scribe/` | Export to HTML, DOCX, XLSX, TXT, Markdown, JSON, CSV, AI-TXT | `exporter.py`, `exporter_html.py`, `exporter_docx.py`, etc. |
+| `gui/` | GUI application (13 modules, entry point: `gui.py`) | `app.py`, `screens.py`, `decryption.py`, `contacts.py`, `export.py`, `styles.py`, `threads.py` |
 | `mind/` | AI chatbot sub-project (optional, separate deployment) | `api_server.py`, `qwen2-0.5b/app.py` |
 | `1-decrypt.py` | Entry point: decrypt WeChat databases | Top-level script |
 | `2-contact.py` | Entry point: list contacts | Top-level script |
@@ -197,18 +198,11 @@ Conventions not yet established. Will populate as patterns emerge during develop
 - Examples: `scribe/exporter.py`, `scribe/exporter_html.py`, `scribe/exporter_txt.py`
 - Pattern: Subclasses override `export()`. Base provides message filtering (by type, time range, group member), avatar management, file copy utilities.
 ## Entry Points
-- Location: `/mnt/d/ChatMemoir/1-decrypt.py`
-- Triggers: Manual execution (script)
-- Responsibilities: Scans WeChat process, extracts key, decrypts all database files
-- Location: `/mnt/d/ChatMemoir/2-contact.py`
-- Triggers: Manual execution (script)
-- Responsibilities: Demonstrates contact querying, prints all contacts and chatroom members
-- Location: `/mnt/d/ChatMemoir/3-exporter.py`
-- Triggers: Manual execution (script)
-- Responsibilities: Demonstrates single/batch export in multiple formats
-- Location: `/mnt/d/ChatMemoir/mind/api_server.py`
-- Triggers: Manual execution (FastAPI server)
-- Responsibilities: Serves a ChatGLM/Qwen model via OpenAI-compatible API for AI features (separate concern from main pipeline)
+- `1-decrypt.py` — Entry point: scans WeChat process, extracts key, decrypts all database files
+- `2-contact.py` — Entry point: demonstrates contact querying, prints all contacts and chatroom members
+- `3-exporter.py` — Entry point: demonstrates single/batch export in multiple formats
+- `gui.py` — GUI entry point: 10-line launcher that delegates to `gui/` package
+- `mind/api_server.py` — Entry point: serves ChatGLM/Qwen model via OpenAI-compatible API (separate concern from main pipeline)
 ## v3 vs v4 Version Support
 ### Database Schema Differences
 - `Misc.db` - Avatars, misc data
@@ -239,7 +233,8 @@ Conventions not yet established. Will populate as patterns emerge during develop
 | Process name | `WeChat.exe` | `Weixin.exe`, reads `Weixin.dll` |
 ### How Version Selection Works
 ## Error Handling
-- Most methods wrap operations in bare `except:` clauses and return empty defaults (`[]`, `''`, `None`)
+- Error handling wraps operations in specific exception types (`except Exception`, `except OSError`, etc.) and returns empty defaults (`[]`, `''`, `None`)
+- No bare `except:` clauses — all catch specific exception types
 - Logging uses custom logger at `memoir/log/logger.py`
 - Database errors during merge operations trigger rollback and error printing
 - Failed media file operations (copy, decode) are silently skipped
