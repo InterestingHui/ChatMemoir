@@ -41,6 +41,13 @@ class LoggingMixin:
         pct = int(current / total * 100)
         short_name = os.path.basename(filename)[:30] if filename else ""
         def _update():
+            # stop() is required: ttk.Progressbar in marquee mode (started via
+            # start([intervalMs]) in _on_start) ignores [value] writes until
+            # stop() is called. Without this, real progress is silently dropped.
+            try:
+                self._loading_progress.stop()
+            except Exception:
+                pass
             self._loading_progress["value"] = pct
             self._lbl_loading_pct.configure(text=f"{current}/{total} ({pct}%)  {short_name}")
         try:
