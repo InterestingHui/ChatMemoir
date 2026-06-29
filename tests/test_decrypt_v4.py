@@ -65,6 +65,7 @@ from memoir.decrypt.session_v4 import (
     get_key_,
     verify_key,
     check_chunk,
+    dump_session_info_v4,
 )
 from memoir.decrypt.decrypt_v4 import (
     decrypt_db_file_v4,
@@ -578,3 +579,298 @@ class TestDecryptDbFileV4EdgeCases:
 
             with pytest.raises(FileNotFoundError):
                 decrypt_db_file_v4(key_hex, in_path, out_path)
+
+
+# ── Tests: dump_session_info_v4 ──
+#
+# Patch targets are all in memoir.decrypt.session_v4 (where the function reads them):
+#   - multiprocessing (module attribute) — avoids spawning a real worker subprocess
+#   - open_process, get_wx_dir, regex_scan_keys, collect_db_salts, get_key,
+#     CloseHandle, worker — all module-level names in session_v4
+# data_dir uses literal backslashes because dump_session_info_v4 splits on '\\'.
+
+_TEST_PID = 12345
+_TEST_VERSION = '4.1.8.29'
+# data_dir shape produced by get_wx_dir: "...\\xwechat_files\\<uid>\\db_storage\"
+# Note: exactly ONE trailing backslash (matches real get_wx_dir YARA rule output).
+# split('\\') on this yields [..., 'wxid_abc_def', 'db_storage', ''], so [-3] = 'wxid_abc_def'.
+# Python raw strings cannot end with a single backslash, so concatenate explicitly.
+_TEST_DB_STORAGE = r'C:\Users\x\xwechat_files\wxid_abc_def\db_storage' + '\\'
+# After trim (drop last 2 segments) dump_session_info_v4 stores this as data_dir:
+#   '\\'.join('...db_storage'.split('\\')[:-2]) -> '...xwechat_files\wxid_abc_def'
+_TEST_TRIMMED_WX_DIR = r'C:\Users\x\xwechat_files\wxid_abc_def'
+# uid is derived from segment -3 of the ORIGINAL data_dir, split on '_', dropping last part:
+#   'wxid_abc_def' -> ['wxid', 'abc', 'def'] -> joined minus last -> 'wxid_abc'
+_TEST_UID = 'wxid_abc'
+
+
+class TestDumpSessionInfoV4:
+    """Behavioral coverage of dump_session_info_v4 across all return paths."""
+
+    @mock.patch('memoir.decrypt.session_v4.worker')
+    @mock.patch('memoir.decrypt.session_v4.multiprocessing')
+    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4.open_process', return_value=None)
+    @mock.patch('memoir.decrypt.session_v4.get_version', return_value=_TEST_VERSION)
+    def test_open_process_returns_none_sets_404(
+            self, mock_get_version, mock_open_process, mock_close_handle,
+            mock_mp, mock_worker):
+        """When open_process returns a falsy handle, the function short-circuits.
+
+        Expected: key stays empty, errcode=404, version+pid still populated,
+        and regex_scan_keys / get_wx_dir are NEVER called.
+        """
+        with mock.patch('memoir.decrypt.session_v4.regex_scan_keys') as mock_regex, \
+             mock.patch('memoir.decrypt.session_v4.get_wx_dir') as mock_wxdir:
+            result = dump_session_info_v4(_TEST_PID)
+
+        assert result is not None
+        assert result.pid == _TEST_PID
+        assert result.version == _TEST_VERSION
+        assert result.key == ''
+        assert result.errcode == 404
+        # Critical: did not proceed past the open_process guard
+        mock_regex.assert_not_called()
+        mock_wxdir.assert_not_called()
+        # close_handle was NOT called on the None path (guard returns before CloseHandle)
+        mock_close_handle.assert_not_called()
+
+    @mock.patch('memoir.decrypt.session_v4.worker')
+    @mock.patch('memoir.decrypt.session_v4.multiprocessing')
+    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4.get_wx_dir', return_value='')
+    @mock.patch('memoir.decrypt.session_v4.open_process', return_value=mock.MagicMock())
+    @mock.patch('memoir.decrypt.session_v4.get_version', return_value=_TEST_VERSION)
+    def test_get_wx_dir_returns_empty_sets_404(
+            self, mock_get_version, mock_open_process, mock_wxdir,
+            mock_close_handle, mock_mp, mock_worker):
+        """When get_wx_dir returns '', CloseHandle is called and the function returns early.
+
+        Expected: key='', errcode=404, regex_scan_keys not called.
+        """
+        with mock.patch('memoir.decrypt.session_v4.regex_scan_keys') as mock_regex:
+            result = dump_session_info_v4(_TEST_PID)
+
+        assert result is not None
+        assert result.key == ''
+        assert result.errcode == 404
+        assert result.data_dir == ''
+        mock_regex.assert_not_called()
+        mock_close_handle.assert_called_once()
+
+    @mock.patch('memoir.decrypt.session_v4.worker')
+    @mock.patch('memoir.decrypt.session_v4.multiprocessing')
+    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4.regex_scan_keys')
+    @mock.patch('memoir.decrypt.session_v4.collect_db_salts')
+    @mock.patch('memoir.decrypt.session_v4.get_wx_dir', return_value=_TEST_DB_STORAGE)
+    @mock.patch('memoir.decrypt.session_v4.open_process', return_value=mock.MagicMock())
+    @mock.patch('memoir.decrypt.session_v4.get_version', return_value=_TEST_VERSION)
+    def test_regex_scan_success_sets_key_map_and_uid(
+            self, mock_get_version, mock_open_process, mock_wxdir,
+            mock_collect_salts, mock_regex, mock_close_handle,
+            mock_mp, mock_worker):
+        """When regex_scan_keys returns a salt->key map, key_map and key are populated.
+
+        Expected: key_map built from collect_db_salts mapping, key set to any value,
+        uid derived from data_dir backslash split, errcode=200, data_dir trimmed.
+        """
+        salt_hex = 'aa' * 16
+        enc_key_hex = 'bb' * 32
+        # Use forward-slash join for the mock value; dump_session_info_v4 passes
+        # it to os.path.relpath which normalizes separators on the host OS.
+        db_abs_path = _TEST_DB_STORAGE.rstrip('\\').replace('\\', '/') + '/contact/contact.db'
+        mock_collect_salts.return_value = {salt_hex: db_abs_path}
+        mock_regex.return_value = {salt_hex: enc_key_hex}
+
+        result = dump_session_info_v4(_TEST_PID)
+
+        assert result is not None
+        assert result.errcode == 200
+        assert result.key == enc_key_hex
+        assert len(result.key_map) == 1
+        # rel_path key is computed via os.path.relpath(db_abs_path, trimmed_wx_dir)
+        rel_keys = list(result.key_map.keys())
+        assert any(k.endswith('contact.db') for k in rel_keys)
+        assert result.key_map[rel_keys[0]] == enc_key_hex
+        # uid derived from segment -3 of original data_dir ('wxid_abc_def') split on '_'
+        assert result.uid == _TEST_UID
+        # data_dir trimmed (last 2 segments dropped)
+        assert result.data_dir == _TEST_TRIMMED_WX_DIR
+        mock_close_handle.assert_called_once()
+
+    @mock.patch('memoir.decrypt.session_v4.worker')
+    @mock.patch('memoir.decrypt.session_v4.multiprocessing')
+    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4.get_key')
+    @mock.patch('memoir.decrypt.session_v4.regex_scan_keys', return_value={})
+    @mock.patch('memoir.decrypt.session_v4.get_wx_dir', return_value=_TEST_DB_STORAGE)
+    @mock.patch('memoir.decrypt.session_v4.open_process', return_value=mock.MagicMock())
+    @mock.patch('memoir.decrypt.session_v4.get_version', return_value=_TEST_VERSION)
+    def test_yara_fallback_raw_key_success(
+            self, mock_get_version, mock_open_process, mock_wxdir,
+            mock_regex, mock_get_key, mock_close_handle,
+            mock_mp, mock_worker):
+        """When regex_scan_keys returns {} and get_key finds a raw key, errcode=200.
+
+        The YARA fallback needs to find at least one .db file under data_dir.
+        Since data_dir is a Windows path that doesn't exist on Linux test hosts,
+        we mock os.path.exists / os.path.getsize / open to simulate a real file.
+        """
+        raw_key_hex = 'cc' * 32
+        mock_get_key.return_value = (raw_key_hex, False)  # is_passphrase=False
+
+        with mock.patch('os.path.exists', return_value=True), \
+             mock.patch('os.path.getsize', return_value=PAGE_SIZE), \
+             mock.patch('builtins.open', mock.mock_open(read_data=b'\x00' * PAGE_SIZE)):
+            result = dump_session_info_v4(_TEST_PID)
+
+        assert result is not None
+        assert result.errcode == 200
+        assert result.key == raw_key_hex
+        # Raw-key branch does not populate key_map
+        assert result.key_map == {}
+        mock_get_key.assert_called_once()
+        mock_close_handle.assert_called_once()
+
+    @mock.patch('memoir.decrypt.session_v4.worker')
+    @mock.patch('memoir.decrypt.session_v4.multiprocessing')
+    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4.get_key')
+    @mock.patch('memoir.decrypt.session_v4.collect_db_salts')
+    @mock.patch('memoir.decrypt.session_v4.regex_scan_keys', return_value={})
+    @mock.patch('memoir.decrypt.session_v4.get_wx_dir', return_value=_TEST_DB_STORAGE)
+    @mock.patch('memoir.decrypt.session_v4.open_process', return_value=mock.MagicMock())
+    @mock.patch('memoir.decrypt.session_v4.get_version', return_value=_TEST_VERSION)
+    def test_yara_fallback_passphrase_derives_per_db_keys(
+            self, mock_get_version, mock_open_process, mock_wxdir,
+            mock_regex, mock_collect_salts, mock_get_key, mock_close_handle,
+            mock_mp, mock_worker):
+        """When get_key returns (passphrase_hex, True), per-DB keys are derived via PBKDF2.
+
+        Expected: errcode=200, key set to the passphrase hex, key_map populated
+        with derived per-DB keys.
+        """
+        salt = bytes.fromhex('11' * 16)
+        salt_hex = salt.hex()
+        passphrase = bytes.fromhex('22' * 32)
+        passphrase_hex = passphrase.hex()
+        # collect_db_salts returns {salt_hex: db_path}; db_path is only used to
+        # compute rel_path via os.path.relpath, so a forward-slash form works on Linux.
+        db_abs_path = _TEST_DB_STORAGE.rstrip('\\').replace('\\', '/') + '/contact/contact.db'
+        mock_collect_salts.return_value = {salt_hex: db_abs_path}
+        mock_get_key.return_value = (passphrase_hex, True)
+
+        # The YARA fallback needs to find a .db file; mock the file-discovery
+        # calls since data_dir is a fake Windows path.
+        with mock.patch('os.path.exists', return_value=True), \
+             mock.patch('os.path.getsize', return_value=PAGE_SIZE), \
+             mock.patch('builtins.open', mock.mock_open(read_data=b'\x00' * PAGE_SIZE)), \
+             mock.patch('memoir.decrypt.session_v4.PBKDF2') as mock_pbkdf2:
+            derived_key = bytes.fromhex('33' * 32)
+            mock_pbkdf2.return_value = derived_key
+
+            result = dump_session_info_v4(_TEST_PID)
+
+        assert result is not None
+        assert result.errcode == 200
+        assert result.key == passphrase_hex
+        assert len(result.key_map) == 1
+        # Each value is the hex of the PBKDF2-derived key
+        assert list(result.key_map.values())[0] == derived_key.hex()
+        mock_close_handle.assert_called_once()
+
+    @mock.patch('memoir.decrypt.session_v4.worker')
+    @mock.patch('memoir.decrypt.session_v4.multiprocessing')
+    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4.get_key', return_value=(None, False))
+    @mock.patch('memoir.decrypt.session_v4.regex_scan_keys', return_value={})
+    @mock.patch('memoir.decrypt.session_v4.get_wx_dir', return_value=_TEST_DB_STORAGE)
+    @mock.patch('memoir.decrypt.session_v4.open_process', return_value=mock.MagicMock())
+    @mock.patch('memoir.decrypt.session_v4.get_version', return_value=_TEST_VERSION)
+    def test_all_paths_fail_sets_404(
+            self, mock_get_version, mock_open_process, mock_wxdir,
+            mock_regex, mock_get_key, mock_close_handle,
+            mock_mp, mock_worker):
+        """When regex_scan_keys returns {} and get_key returns (None, _), errcode=404.
+
+        Note: get_key is only reached if a candidate DB file is found.
+        We need os.path.exists / os.path.getsize / os.walk to find a file.
+        Patching them to True ensures the YARA fallback path runs and get_key
+        gets invoked.
+        """
+        with mock.patch('os.path.exists', return_value=True), \
+             mock.patch('os.path.getsize', return_value=PAGE_SIZE), \
+             mock.patch('os.walk', return_value=[(_TEST_DB_STORAGE, [], ['fake.db'])]), \
+             mock.patch('builtins.open', mock.mock_open(read_data=b'\x00' * PAGE_SIZE)):
+            result = dump_session_info_v4(_TEST_PID)
+
+        assert result is not None
+        assert result.errcode == 404
+        assert result.key == ''
+        mock_get_key.assert_called_once()
+        mock_close_handle.assert_called_once()
+
+    @mock.patch('memoir.decrypt.session_v4.worker')
+    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4.get_wx_dir', return_value=_TEST_DB_STORAGE)
+    @mock.patch('memoir.decrypt.session_v4.open_process', return_value=mock.MagicMock())
+    @mock.patch('memoir.decrypt.session_v4.get_version', return_value=_TEST_VERSION)
+    def test_nickname_queue_populated(
+            self, mock_get_version, mock_open_process, mock_wxdir,
+            mock_close_handle, mock_worker):
+        """When the multiprocessing worker puts nickname info on the queue,
+        nick_name/phone/account_name are read into the SessionInfo.
+
+        We stub the real multiprocessing module with a fake that delivers a
+        pre-populated queue synchronously, so worker() need not actually run.
+        regex_scan_keys / collect_db_salts are patched via context managers to
+        avoid decorator parameter-ordering pitfalls.
+        """
+        salt_hex = 'aa' * 16
+        enc_key_hex = 'bb' * 32
+        db_abs_path = _TEST_DB_STORAGE.rstrip('\\').replace('\\', '/') + '/contact/contact.db'
+
+        nickname_payload = {
+            'nick_name': 'TestUser',
+            'phone': '13800000000',
+            'account_name': 'test_user',
+        }
+
+        class _FakeQueue:
+            def __init__(self):
+                self._items = [nickname_payload]
+
+            def empty(self):
+                return not self._items
+
+            def get(self):
+                return self._items.pop(0)
+
+        class _FakeProcess:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def start(self):
+                pass
+
+            def join(self):
+                pass
+
+        fake_mp = mock.MagicMock()
+        fake_mp.Queue = _FakeQueue
+        fake_mp.Process = _FakeProcess
+
+        with mock.patch('memoir.decrypt.session_v4.regex_scan_keys',
+                        return_value={salt_hex: enc_key_hex}), \
+             mock.patch('memoir.decrypt.session_v4.collect_db_salts',
+                        return_value={salt_hex: db_abs_path}), \
+             mock.patch('memoir.decrypt.session_v4.multiprocessing', fake_mp):
+            result = dump_session_info_v4(_TEST_PID)
+
+        assert result is not None
+        assert result.errcode == 200
+        assert result.nick_name == 'TestUser'
+        assert result.phone == '13800000000'
+        assert result.account_name == 'test_user'
+        assert result.key == enc_key_hex
