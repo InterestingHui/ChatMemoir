@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 Phase: 03
 Plan: Not started
 Status: Executing Phase 02
-Last activity: 2026-06-29 - Completed quick task 260629-urj: GUI 进度条修复端到端集成测试
+Last activity: 2026-06-29 - Completed quick task 260629-v3a: v4 流水线合成 DB 集成测试
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -81,6 +81,7 @@ None yet.
 | 260628-u53 | 修复 GUI 解密进度条 marquee/value 不匹配 | 2026-06-28 | f3831bb | [260628-u53-gui-start-10-marquee-set-loading-progres](./quick/260628-u53-gui-start-10-marquee-set-loading-progres/) |
 | 260629-klj | dump_session_info_v4 集成测试（7 分支） | 2026-06-29 | 6d682da | [260629-klj-dump-session-info-v4-7-open-process-none](./quick/260629-klj-dump-session-info-v4-7-open-process-none/) |
 | 260629-urj | GUI 进度条修复端到端集成测试 | 2026-06-29 | 10d1722 | [260629-urj-gui-testautodecryptprogressflow-mock-aut](./quick/260629-urj-gui-testautodecryptprogressflow-mock-aut/) |
+| 260629-v3a | v4 流水线合成 DB 集成测试（联系人→消息→导出） | 2026-06-29 | ffc4226 | [260629-v3a-v4-db-contact-db-message-0-db-info-json-](./quick/260629-v3a-v4-db-contact-db-message-0-db-info-json-/) |
 
 ## Session Continuity
 
