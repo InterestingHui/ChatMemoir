@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: context exhaustion at 75% (2026-06-08)
-last_updated: "2026-06-28T13:42:07.524Z"
-last_activity: 2026-06-28
+last_updated: "2026-06-29T06:49:51.468Z"
+last_activity: 2026-06-29
 progress:
   total_phases: 0
   completed_phases: 0
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 Phase: 03
 Plan: Not started
 Status: Executing Phase 02
-Last activity: 2026-06-28 - Completed quick task 260628-u53: 修复 GUI 解密进度条 marquee/value 不匹配
+Last activity: 2026-06-29 - Completed quick task 260629-klj: dump_session_info_v4 集成测试（7 分支）
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -79,6 +79,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260628-u53 | 修复 GUI 解密进度条 marquee/value 不匹配 | 2026-06-28 | f3831bb | [260628-u53-gui-start-10-marquee-set-loading-progres](./quick/260628-u53-gui-start-10-marquee-set-loading-progres/) |
+| 260629-klj | dump_session_info_v4 集成测试（7 分支） | 2026-06-29 | 6d682da | [260629-klj-dump-session-info-v4-7-open-process-none](./quick/260629-klj-dump-session-info-v4-7-open-process-none/) |
 
 ## Session Continuity
 
