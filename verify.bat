@@ -13,10 +13,10 @@ if errorLevel 1 (
 
 echo Running headless pipeline verifier...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "cd '%~dp0'; python.exe verify-pipeline.py 2>&1 | Tee-Object -FilePath '%~dp0verify-pipeline.console.log'"
+  "cd '%~dp0'; python.exe verify_pipeline.py 2>&1 | Tee-Object -FilePath '%~dp0verify-pipeline.console.log'"
 echo.
 echo Done. Logs:
-echo   %~dp0verify-pipeline.log         (structured log)
+echo   %~dp0verify_pipeline.log         (structured log)
 echo   %~dp0verify-pipeline.console.log (full console capture)
 echo.
 pause

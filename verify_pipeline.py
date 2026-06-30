@@ -1,9 +1,10 @@
 """Headless E2E verifier for ChatMemoir decrypt -> contacts pipeline.
 
 Bypasses the GUI; runs the same memoir calls _auto_decrypt makes, with full
-logging at each step. Run via verify.bat (self-elevates via UAC).
+logging at each step. Run via verify.bat (self-elevates via UAC), OR via the
+existing admin scheduled task through gui.py's sentinel-file dispatch.
 
-Output: verify-pipeline.log (readable from WSL for diagnosis).
+Output: verify_pipeline.log (readable from WSL for diagnosis).
 """
 
 import ctypes
@@ -15,7 +16,7 @@ import traceback
 from datetime import datetime
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG = os.path.join(SCRIPT_DIR, 'verify-pipeline.log')
+LOG = os.path.join(SCRIPT_DIR, 'verify_pipeline.log')
 
 
 def log(msg):
