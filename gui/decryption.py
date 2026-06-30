@@ -122,21 +122,34 @@ class DecryptionMixin:
                 if not passphrase:
                     self.log(f"  {uid}: 未能获取密钥，跳过")
                     continue
-                # Derive per-DB keys from passphrase
+                # ponytail: two-pass PBKDF2 derivation. First pass collects .db
+                # candidates so we can show real X/Y progress; previously this was
+                # a single os.walk loop with no progress_callback, leaving the bar
+                # in start(10) cycling mode for the full 30-60s PBKDF2 duration.
                 import hashlib as _hl
-                key_map = {}
+                db_candidates = []
                 for root, dirs, files in os.walk(session_info.data_dir):
                     for fn in files:
-                        if fn.endswith('.db'):
-                            fp = os.path.join(root, fn)
-                            if os.path.getsize(fp) < 4096:
-                                continue
-                            with open(fp, 'rb') as fh:
-                                salt = fh.read(16)
-                            dk = _hl.pbkdf2_hmac('sha512', bytes.fromhex(passphrase), salt, 256000, dklen=32)
-                            # key path relative to data_dir, matching decrypt_db_files lookup
-                            rel_dir = os.path.relpath(root, session_info.data_dir)
-                            key_map[os.path.join(rel_dir, fn)] = dk.hex()
+                        if not fn.endswith('.db'):
+                            continue
+                        fp = os.path.join(root, fn)
+                        if os.path.getsize(fp) < 4096:
+                            continue
+                        db_candidates.append((root, fn))
+                total = len(db_candidates)
+                self.set_loading_status(f"正在派生数据库密钥（{total} 个，每个约0.5s）...")
+                # Trigger stop() on the marquee bar before the first iteration;
+                # total=0 still calls stop() so the bar doesn't cycle on empty dirs.
+                self.set_loading_progress(0, max(total, 1), "")
+                key_map = {}
+                for i, (root, fn) in enumerate(db_candidates):
+                    fp = os.path.join(root, fn)
+                    with open(fp, 'rb') as fh:
+                        salt = fh.read(16)
+                    dk = _hl.pbkdf2_hmac('sha512', bytes.fromhex(passphrase), salt, 256000, dklen=32)
+                    rel_dir = os.path.relpath(root, session_info.data_dir)
+                    key_map[os.path.join(rel_dir, fn)] = dk.hex()
+                    self.set_loading_progress(i + 1, total, fn)
                 session_info.key_map = key_map
                 session_info.key = list(key_map.values())[0] if key_map else passphrase
                 key = session_info.key

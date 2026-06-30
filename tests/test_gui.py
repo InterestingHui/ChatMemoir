@@ -486,3 +486,63 @@ class TestAutoDecryptProgressFlow:
         assert values == [0, 30, 70, 100], f"unexpected value sequence: {values!r}"
         # stop() called on every set_loading_progress (4 times)
         assert host._loading_progress.stop.call_count == 4
+
+    def test_pbkdf2_phase_reports_per_file_progress(self, tmp_path, monkeypatch):
+        """Regression: when session_info.key is None, _auto_decrypt must call
+        set_loading_progress for each .db file during PBKDF2 derivation.
+        Previously this loop had no progress_callback, leaving the bar in
+        start(10) cycling mode for the full 30-60s PBKDF2 duration."""
+
+        # Arrange: SessionInfo with key=None forces the PBKDF2 branch
+        session_info = _build_session_info(tmp_path, key=None)
+        data_dir = session_info.data_dir
+        os.makedirs(data_dir, exist_ok=True)
+        # 3 fake .db files: 16-byte salt header + padding to reach the
+        # ≥4096 byte threshold required by _auto_decrypt's size check.
+        salt_and_padding = b'\x12' * 16 + b'\x00' * 4080
+        for fn in ('contact.db', 'session.db', 'message_0.db'):
+            with open(os.path.join(data_dir, fn), 'wb') as f:
+                f.write(salt_and_padding)
+
+        app = _FakeApp(tmp_path)
+        _patch_decrypt_stack(monkeypatch, session_info)
+
+        # Fast PBKDF2 stub — testing progress reporting, not crypto.
+        import hashlib
+        monkeypatch.setattr(hashlib, 'pbkdf2_hmac', lambda *a, **kw: b'\x00' * 32)
+
+        # _get_wx_key_passphrase → valid 64-char hex passphrase (skips wx_key
+        # subprocess launch + 60s wait loop).
+        app._get_wx_key_passphrase = lambda uid: 'a' * 64
+
+        def _sync_run_task(target, on_done=None, on_error=None, **kw):
+            try:
+                result = target()
+                if on_done:
+                    on_done(result)
+            except Exception as e:
+                if on_error:
+                    on_error(e)
+                else:
+                    raise
+        app.run_task = mock.MagicMock(side_effect=_sync_run_task)
+
+        # Act
+        app._on_start()
+
+        # Assert: PBKDF2 phase emits unique pcts 33 (1/3) and 66 (2/3).
+        # These don't collide with decrypt phase values (0, 50, 100 from
+        # 0/10, 5/10, 10/10) so their presence proves the PBKDF2 loop
+        # reported per-file progress.
+        value_assignments = [
+            c.args[1] for c in app._loading_progress.__setitem__.call_args_list
+            if c.args and c.args[0] == "value"
+        ]
+        assert 33 in value_assignments, (
+            f"PBKDF2 1/3 progress (33%) missing: {value_assignments!r} — "
+            f"loop is not reporting per-file progress"
+        )
+        assert 66 in value_assignments, (
+            f"PBKDF2 2/3 progress (66%) missing: {value_assignments!r} — "
+            f"loop is not reporting per-file progress"
+        )
