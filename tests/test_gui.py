@@ -468,6 +468,29 @@ class TestAutoDecryptProgressFlow:
             f"final value assignment should be 100 (complete), got {value_assignments[-1]}"
         )
 
+        # Assert 4: mode switches indeterminate → determinate.
+        # _on_start must configure mode="indeterminate" so start(10) produces
+        # a true marquee (block bouncing) during the unknown-duration YARA scan,
+        # NOT the misleading 0→100→0 cycling of a determinate bar.
+        # set_loading_progress must flip back to mode="determinate" so [value]
+        # reflects real X/Y progress.
+        mode_calls = [
+            c.kwargs.get("mode") for c in app._loading_progress.configure.call_args_list
+            if c.kwargs and "mode" in c.kwargs
+        ]
+        assert "indeterminate" in mode_calls, (
+            f"_on_start must configure mode='indeterminate' for scan phase; "
+            f"mode calls: {mode_calls!r}"
+        )
+        assert "determinate" in mode_calls, (
+            f"set_loading_progress must configure mode='determinate' on first "
+            f"real progress; mode calls: {mode_calls!r}"
+        )
+        # Order matters: indeterminate (scan) must precede determinate (progress).
+        assert mode_calls.index("indeterminate") < mode_calls.index("determinate"), (
+            f"indeterminate must be set before determinate; mode calls: {mode_calls!r}"
+        )
+
     def test_set_loading_progress_idempotent_stop(self):
         """Repeated set_loading_progress calls must not error when stop() is
         invoked on a bar not currently in marquee mode — documented no-op."""

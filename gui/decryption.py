@@ -14,6 +14,14 @@ class DecryptionMixin:
     def _on_start(self):
         """开始一键解密"""
         self._show_screen("loading")
+        # ponytail: switch to indeterminate for scan phase. The bar ships as
+        # mode="determinate"; calling start(10) on a determinate bar cycles
+        # value 0→100→0 every ~1s, which reads as "real progress happening
+        # fast" — misleading during the 10-30s YARA scan that has no natural
+        # X/Y. True indeterminate marquee (block bouncing back and forth)
+        # honestly signals "working, duration unknown". The first real
+        # set_loading_progress call flips it back to determinate.
+        self._loading_progress.configure(mode="indeterminate")
         self._loading_progress.start(10)
         self.set_loading_status("正在扫描微信进程...")
         self._loading_log.configure(state="normal")

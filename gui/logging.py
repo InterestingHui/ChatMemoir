@@ -48,6 +48,12 @@ class LoggingMixin:
                 self._loading_progress.stop()
             except Exception:
                 pass
+            # ponytail: flip back to determinate so [value] reflects real X/Y.
+            # _on_start sets mode=indeterminate for the scan phase (true marquee
+            # for unknown-duration work). The first real progress callback lands
+            # here and switches to determinate so subsequent pct values render
+            # as a filling bar instead of a bouncing block.
+            self._loading_progress.configure(mode="determinate")
             self._loading_progress["value"] = pct
             self._lbl_loading_pct.configure(text=f"{current}/{total} ({pct}%)  {short_name}")
         try:
