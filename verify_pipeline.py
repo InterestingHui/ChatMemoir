@@ -202,6 +202,7 @@ def main():
 
     # 3. Fast-find or full scan
     log("--- Step 3: locate WeChat data dir ---")
+    direct_key = None  # set only if full scan yields a usable key directly
     fast = step_fast_find() if passphrase else None
     if fast:
         uid, data_dir, _ = fast
@@ -215,23 +216,25 @@ def main():
         si = infos[0]
         uid, data_dir = si.uid, si.data_dir
         if si.key:
-            passphrase = None  # full scan gave us a key directly
-            key = si.key
-            key_map = None
-            log(f"Using direct key from scan: {key[:16]}...")
+            direct_key = si.key
+            passphrase = None  # scan key supersedes passphrase path
+            log(f"Using direct key from scan: {direct_key[:16]}...")
     log("")
 
-    # 4. Derive keys if needed (passphrase path)
-    key_map = None
+    # 4. Derive keys if we have a passphrase; else fall back to direct key.
     key = None
+    key_map = None
     if passphrase:
         log("--- Step 4: PBKDF2 key derivation ---")
         key_map = step_derive_keys(passphrase, data_dir)
         key = list(key_map.values())[0] if key_map else passphrase
         log("")
+    elif direct_key:
+        key = direct_key
+        log(f"Skipping PBKDF2 (using scan-provided key)")
     else:
-        # Full-scan path set key already
-        pass
+        log("ERROR: no key obtainable — neither cache passphrase nor scan key")
+        return 1
 
     # 5. Decrypt
     log("--- Step 5: decrypt_db_files ---")
