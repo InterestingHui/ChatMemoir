@@ -140,8 +140,9 @@ def step_derive_keys(passphrase, data_dir):
     return key_map
 
 
-def step_decrypt(uid, key, key_map, data_dir):
-    """Step 6: decrypt_db_files to a fresh verify-output dir."""
+def step_decrypt(uid, key, key_map, data_dir, label="cache"):
+    """Step 6: decrypt_db_files to a fresh verify-output dir.
+    Returns (output_dir, total, failed)."""
     from memoir.decrypt import decrypt_v4
     output_dir = os.path.join(SCRIPT_DIR, 'verify-output', uid)
     if os.path.exists(output_dir):
@@ -149,13 +150,35 @@ def step_decrypt(uid, key, key_map, data_dir):
         import shutil
         shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
-    log(f"Decrypting to {output_dir}...")
+    log(f"Decrypting to {output_dir} (key source: {label})...")
     t0 = time.time()
     total, failed = decrypt_v4.decrypt_db_files(
         key, src_dir=data_dir, dest_dir=output_dir,
         key_map=key_map or None, skip_existing=False)
-    log(f"Decrypt: total={total} failed={failed} took {time.time()-t0:.1f}s")
-    return output_dir
+    log(f"Decrypt [{label}]: total={total} failed={failed} took {time.time()-t0:.1f}s")
+    return output_dir, total, failed
+
+
+def step_yara_fallback(data_dir):
+    """Run get_info_v4() to extract a YARA-verified key from WeChat memory.
+    Returns (session_info, key, key_map) or (None, None, None) on failure."""
+    log("--- YARA fallback: get_info_v4 ---")
+    t0 = time.time()
+    from memoir.decrypt import get_info_v4
+    infos = get_info_v4()
+    log(f"YARA scan took {time.time()-t0:.1f}s, found {len(infos)} session(s)")
+    if not infos:
+        log("YARA found no sessions")
+        return None, None, None
+    si = infos[0]
+    log(f"YARA session: uid={si.uid} key={'set' if si.key else 'None'}")
+    if not si.key:
+        log("YARA session has no key")
+        return None, None, None
+    # If session has a key_map (per-DB keys), use it; else single key.
+    key_map = getattr(si, 'key_map', None) or None
+    log(f"YARA key prefix: {si.key[:16]}... key_map={'yes' if key_map else 'no'}")
+    return si, si.key, key_map
 
 
 def step_query_contacts(db_dir):
@@ -236,11 +259,30 @@ def main():
         log("ERROR: no key obtainable — neither cache passphrase nor scan key")
         return 1
 
-    # 5. Decrypt
+    # 5. Decrypt (cache path)
     log("--- Step 5: decrypt_db_files ---")
-    output_dir = step_decrypt(uid, key, key_map, data_dir)
+    output_dir, total, failed = step_decrypt(uid, key, key_map, data_dir, label="cache")
     info_dir = os.path.join(output_dir, 'db_storage')
     log("")
+
+    # 5b. YARA fallback if cache path failed completely
+    if total > 0 and failed == total:
+        log(f"!!! Cache-derived key decrypted 0/{total} DBs — passphrase is stale.")
+        log(f"!!! Falling back to YARA scan to extract current key from WeChat memory.")
+        log("")
+        si_yara, key_yara, key_map_yara = step_yara_fallback(data_dir)
+        if si_yara is None:
+            log("YARA fallback failed too. Both paths dead — regex needs updating for this WeChat version.")
+            return 1
+        log("")
+        log("--- Step 5c: retry decrypt with YARA key ---")
+        uid = si_yara.uid
+        output_dir, total, failed = step_decrypt(uid, key_yara, key_map_yara, si_yara.data_dir, label="yara")
+        info_dir = os.path.join(output_dir, 'db_storage')
+        log("")
+        if total > 0 and failed == total:
+            log("YARA key also failed to decrypt any DBs.")
+            return 1
 
     # 6. Query contacts
     log("--- Step 6: ArchiveConnection + get_contacts ---")
