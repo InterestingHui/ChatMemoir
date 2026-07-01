@@ -22,6 +22,20 @@ if os.path.exists(_sentinel):
     from verify_pipeline import main as _verify_main
     sys.exit(_verify_main())
 
+# Self-test dispatch: drives the real ChatMemoirApp + _on_start via Tk
+# mainloop, teeing every set_loading_progress / log callback to selftest.log.
+# Same sentinel pattern as .verify-trigger — reuses the admin scheduled task
+# so no extra UAC. Trigger: `touch .selftest-trigger && schtasks /Run /TN ChatMemoirAdmin`
+_selftest_sentinel = os.path.join(_proj_dir, '.selftest-trigger')
+if os.path.exists(_selftest_sentinel):
+    try:
+        os.remove(_selftest_sentinel)
+    except OSError:
+        pass
+    sys.path.insert(0, _proj_dir)
+    from selftest_auto import main as _selftest_main
+    sys.exit(_selftest_main())
+
 # Kill-other-pythonw dispatch: scheduled-task elevation can't be terminated
 # from a non-admin WSL shell ('Access Denied'), so to clean up stuck admin
 # pythonw processes we use the same sentinel trick. The task launches us

@@ -40,3 +40,5 @@ verify-output/
 .verify-trigger
 verify_pipeline.log
 verify-pipeline.console.log
+.selftest-trigger
+selftest.log
