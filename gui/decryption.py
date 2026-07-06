@@ -14,15 +14,14 @@ class DecryptionMixin:
     def _on_start(self):
         """开始一键解密"""
         self._show_screen("loading")
-        # ponytail: switch to indeterminate for scan phase. The bar ships as
-        # mode="determinate"; calling start(10) on a determinate bar cycles
-        # value 0→100→0 every ~1s, which reads as "real progress happening
-        # fast" — misleading during the 10-30s YARA scan that has no natural
-        # X/Y. True indeterminate marquee (block bouncing back and forth)
-        # honestly signals "working, duration unknown". The first real
-        # set_loading_progress call flips it back to determinate.
-        self._loading_progress.configure(mode="indeterminate")
-        self._loading_progress.start(10)
+        # ponytail: no marquee during scan phase. Earlier revision called
+        # start(10) to bounce the block as an "alive" signal, but user
+        # feedback was that a bouncing bar reads as "progress not matching
+        # reality". Keep the bar in determinate mode at 0% — status text +
+        # log widget already convey liveness, the bar only moves when there
+        # is real X/Y to show (first set_loading_progress call from PBKDF2).
+        self._loading_progress.configure(mode="determinate")
+        self._loading_progress["value"] = 0
         self.set_loading_status("正在扫描微信进程...")
         self._loading_log.configure(state="normal")
         self._loading_log.delete("1.0", "end")
