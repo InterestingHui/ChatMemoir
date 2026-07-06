@@ -180,6 +180,18 @@ class DecryptionMixin:
                     progress_callback=self.set_loading_progress)
                 if failed:
                     self.log(f"  警告: {failed}/{total} 个数据库解密失败")
+                # ponytail: abort when every DB failed. Previously the GUI
+                # logged a warning and continued into ArchiveConnection,
+                # which then hung silently on missing/0-byte SQLite files
+                # because the cache passphrase was stale. Surface the real
+                # cause (key extraction broken for this WeChat version)
+                # instead of letting the user stare at a frozen "正在连接数据库...".
+                if total > 0 and failed == total:
+                    raise RuntimeError(
+                        f"全部 {total} 个数据库解密失败。cache 中的 wx_key 密钥已过期或与"
+                        f"当前微信版本不兼容，请重新登录微信或手动运行 "
+                        f"tools/wx_key/wx_key.exe 提取新密钥后重试。"
+                    )
                 info_dir = os.path.join(output_dir, "db_storage")
             else:
                 me = Me()
