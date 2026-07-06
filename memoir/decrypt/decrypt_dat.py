@@ -136,21 +136,26 @@ def get_decode_code_v4(data_dir):
                 break
             for file in files:
                 if file.endswith("_t.dat"):
-                    # 构造源文件和目标文件的完整路径
+                    # ponytail: only the first 6 bytes (is_v4_image) and last 2
+                    # bytes (jpg tail xor) are used; reading whole MB-sized _t.dat
+                    # files for thousands of cache entries was the decrypt stall.
                     src_file_path = os.path.join(root, file)
-                    with open(src_file_path, 'rb') as f:
-                        data = f.read()
-                        if not is_v4_image(data):
-                            continue
-                        file_tail = data[-2:]
-
-                        jpg_known_tail = b'\xff\xd9'
-                        # 推导出密钥
-                        xor_key = [c ^ p for c, p in zip(file_tail, jpg_known_tail)]
-                        if len(set(xor_key)) == 1:
-                            logger.info(f'[*] 找到异或密钥: 0x{xor_key[0]:x}')
-                            ok_flag = True
-                            return xor_key[0]
+                    try:
+                        with open(src_file_path, 'rb') as f:
+                            head = f.read(6)
+                            if not is_v4_image(head):
+                                continue
+                            f.seek(-2, 2)
+                            file_tail = f.read(2)
+                    except OSError:
+                        continue
+                    jpg_known_tail = b'\xff\xd9'
+                    # 推导出密钥
+                    xor_key = [c ^ p for c, p in zip(file_tail, jpg_known_tail)]
+                    if len(set(xor_key)) == 1:
+                        logger.info(f'[*] 找到异或密钥: 0x{xor_key[0]:x}')
+                        ok_flag = True
+                        return xor_key[0]
         return -1
 
     xor_key_ = find_xor_key(cache_dir)
