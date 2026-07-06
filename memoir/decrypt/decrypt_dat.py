@@ -17,6 +17,8 @@ from aiofiles.os import makedirs
 
 from Crypto.Cipher import AES
 
+from memoir.log import logger
+
 # 图片字节头信息，
 # [0][1]为jpg头信息，
 # [2][3]为png头信息，
