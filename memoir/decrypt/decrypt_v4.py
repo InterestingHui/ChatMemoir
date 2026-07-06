@@ -2,7 +2,6 @@ import hmac
 import os
 import stat
 import struct
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import PBKDF2
@@ -193,17 +192,24 @@ def decrypt_db_files(key, src_dir: str, dest_dir: str, key_map: dict = None,
     if progress_callback:
         progress_callback(0, total, "")
 
-    with ProcessPoolExecutor(max_workers=16) as executor:
-        futures = {executor.submit(decode_wrapper, task): task for task in decrypt_tasks}
-        completed = 0
-        failed = 0
-        for future in as_completed(futures):
-            completed += 1
-            if future.result() is not True:
-                failed += 1
-            if progress_callback:
-                _, _, filename = futures[future]
-                progress_callback(completed, total, filename)
+    # ponytail: sequential loop, not ProcessPoolExecutor. The pool spawned 16
+    # pythonw children from a UNC-launched pythonw parent; on Windows + WSL
+    # the workers re-import __main__ (gui.py) and the parent process died
+    # silently mid-decrypt. 26 small DBs at ~1-2s each is fast enough; the
+    # pool's parallelism wasn't worth the fragility.
+    completed = 0
+    failed = 0
+    for db_key, src_file_path, dest_file_path in decrypt_tasks:
+        try:
+            result = decode_wrapper((db_key, src_file_path, dest_file_path))
+        except Exception as e:
+            logger.info(f"解密异常 {os.path.basename(dest_file_path)}: {e!r}")
+            result = False
+        completed += 1
+        if result is not True:
+            failed += 1
+        if progress_callback:
+            progress_callback(completed, total, os.path.basename(dest_file_path))
 
     if failed:
         logger.info(f"警告: {failed}/{total} 个数据库解密失败")
