@@ -273,6 +273,11 @@ def get_key_(keys, buf):
         if is_ok_passphrase(key, buf):
             logger.info(f"[get_key_] Key verified at candidate #{i+1} (passphrase, 4.1.x format)")
             return bytes.hex(key), True
+        # ponytail: progress heartbeat every 200 candidates. At ~0.5s/candidate
+        # this fires every ~100s, so we can tell the scan is alive vs hung.
+        # Without it, 14k candidates = ~2h of silent "Verifying..." with no signal.
+        if (i + 1) % 200 == 0:
+            logger.info(f"[get_key_] Progress: {i+1}/{len(keys)} verified, no match yet")
     logger.warning("[get_key_] No YARA candidate key passed verification (tried raw and passphrase modes)")
     return None, False
 
@@ -519,6 +524,15 @@ def get_key(pid, process_handle, buf):
     for r in results:
         if r:
             keys += r
+    # ponytail: dedupe across chunks. get_key_inner dedupes within a single
+    # Pool worker via key_set, but the same 32-byte key can appear in multiple
+    # memory regions handled by different workers. On WeChat 4.1.8.29 this
+    # blew up to 14680 candidates (many cross-chunk dups) verified sequentially
+    # at ~0.5s each — ~2h of silent grinding. Dedupe here so each unique key
+    # is verified exactly once.
+    raw_count = len(keys)
+    keys = list(set(keys))
+    logger.info(f"[get_key] {len(keys)} unique candidate keys after dedup (from {raw_count} raw)")
     return get_key_(keys, buf)
 
 
