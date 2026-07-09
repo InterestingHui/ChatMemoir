@@ -25,10 +25,10 @@ from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA512
 import yara
 import re
-import logging
 
 from memoir.decrypt.common import SessionInfo
 from memoir.decrypt.common import get_version
+from memoir.log import logger  # ponytail: use the configured "test" logger (has FileHandler) — was logging.getLogger(__name__) which silently dropped to stderr
 
 # 定义必要的常量
 PROCESS_ALL_ACCESS = 0x1F0FFF
@@ -45,8 +45,6 @@ AES_BLOCK_SIZE = 16
 ROUND_COUNT = 256000
 PAGE_SIZE = 4096
 SALT_SIZE = 16
-
-logger = logging.getLogger(__name__)
 
 
 # 定义 MEMORY_BASIC_INFORMATION 结构
