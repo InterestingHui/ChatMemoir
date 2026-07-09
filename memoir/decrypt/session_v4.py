@@ -259,25 +259,44 @@ def is_ok_passphrase(passphrase, buf):
     return is_ok(derived_key, buf)
 
 
-def get_key_(keys, buf):
-    # Sequential verification — avoids multiprocessing.Value serialization
-    # crash on Windows/Python 3.14 (Synchronized objects not picklable via Pool.starmap).
-    # Each PBKDF2 check is ~0.5s; YARA typically produces <20 candidates.
-    logger.info(f"[get_key_] Verifying {len(keys)} YARA candidate keys sequentially")
-    for i, key in enumerate(keys):
-        # Try as raw derived key (WeChat 4.0.x)
+def _verify_keys_chunk(args):
+    """Worker: verify a chunk of candidate keys against buf. Returns (key, is_passphrase) or None."""
+    keys_chunk, buf, chunk_idx, chunk_total = args
+    for i, key in enumerate(keys_chunk):
+        # Try as raw derived key (WeChat 4.0.x) — fast, PBKDF2 count=2
         if is_ok(key, buf):
-            logger.info(f"[get_key_] Key verified at candidate #{i+1} (raw derived key)")
-            return bytes.hex(key), False
-        # Try as passphrase (WeChat 4.1.x) — expensive PBKDF2 derivation
+            logger.info(f"[get_key_] Key verified in chunk {chunk_idx}/{chunk_total} (raw derived key)")
+            return (key, False)
+        # Try as passphrase (WeChat 4.1.x) — expensive PBKDF2 count=256000
         if is_ok_passphrase(key, buf):
-            logger.info(f"[get_key_] Key verified at candidate #{i+1} (passphrase, 4.1.x format)")
-            return bytes.hex(key), True
-        # ponytail: progress heartbeat every 200 candidates. At ~0.5s/candidate
-        # this fires every ~100s, so we can tell the scan is alive vs hung.
-        # Without it, 14k candidates = ~2h of silent "Verifying..." with no signal.
+            logger.info(f"[get_key_] Key verified in chunk {chunk_idx}/{chunk_total} (passphrase, 4.1.x format)")
+            return (key, True)
         if (i + 1) % 200 == 0:
-            logger.info(f"[get_key_] Progress: {i+1}/{len(keys)} verified, no match yet")
+            logger.info(f"[get_key_] Chunk {chunk_idx}/{chunk_total} progress: {i+1}/{len(keys_chunk)}")
+    return None
+
+
+def get_key_(keys, buf):
+    # ponytail: parallel verification via Pool.imap_unordered. The previous
+    # sequential loop took ~35min for 14k candidates on WeChat 4.1.8.29 (each
+    # is_ok_passphrase runs PBKDF2-SHA512 x256000). The earlier comment about
+    # "multiprocessing.Value serialization crash on Python 3.14" applied to a
+    # shared Synchronized flag — we don't need one, each worker just returns
+    # its own result. First non-None wins, Pool.terminate() kills the rest.
+    n_workers = max(2, min(multiprocessing.cpu_count() // 2, 8))
+    chunk_size = max(1, len(keys) // (n_workers * 8))  # 8 chunks per worker for load balancing
+    chunks = []
+    for i in range(0, len(keys), chunk_size):
+        chunks.append((keys[i:i + chunk_size], buf, len(chunks) + 1, (len(keys) + chunk_size - 1) // chunk_size))
+    logger.info(f"[get_key_] Verifying {len(keys)} YARA candidate keys via Pool "
+                f"({n_workers} workers, {len(chunks)} chunks of ~{chunk_size})")
+    with multiprocessing.Pool(processes=n_workers) as pool:
+        for result in pool.imap_unordered(_verify_keys_chunk, chunks):
+            if result:
+                # Found — returning exits the `with`, which terminates remaining workers.
+                key, is_passphrase = result
+                logger.info(f"[get_key_] Returning key, is_passphrase={is_passphrase}")
+                return bytes.hex(key), is_passphrase
     logger.warning("[get_key_] No YARA candidate key passed verification (tried raw and passphrase modes)")
     return None, False
 
