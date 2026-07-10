@@ -36,6 +36,20 @@ if os.path.exists(_selftest_sentinel):
     from selftest_auto import main as _selftest_main
     sys.exit(_selftest_main())
 
+# wxdecrypt (ylytdeng/wechat-decrypt) dispatch: extract keys via memory scan,
+# decrypt all DBs, export chats. Triggered by .wxdecrypt-trigger sentinel.
+# Reuses admin task for elevation. Output → wxdecrypt.log.
+# Trigger: `touch .wxdecrypt-trigger && schtasks /Run /TN ChatMemoirAdmin`
+_wxdecrypt_sentinel = os.path.join(_proj_dir, '.wxdecrypt-trigger')
+if os.path.exists(_wxdecrypt_sentinel):
+    try:
+        os.remove(_wxdecrypt_sentinel)
+    except OSError:
+        pass
+    sys.path.insert(0, _proj_dir)
+    from run_wxdecrypt import main as _wxdecrypt_main
+    sys.exit(_wxdecrypt_main())
+
 # wx_key refresh dispatch: launch tools/wx_key/wx_key.exe (elevated via the
 # admin task — no UAC) and poll the wx_key cache file until its timestamp
 # changes, then kill wx_key.exe and exit. Lets us refresh a stale passphrase
