@@ -70,35 +70,15 @@ if os.path.exists(_wxkey_sentinel):
     _wxlog(f"old timestamp: {_old_ts}")
     try:
         _proc = subprocess.Popen([_wx_key_exe], cwd=_wx_key_wd)
-        _wxlog(f"launched wx_key.exe pid={_proc.pid}")
+        _wxlog(f"launched wx_key.exe pid={_proc.pid} (NOT auto-killing — user closes manually)")
     except Exception as _e:
         _wxlog(f"launch failed: {_e!r}")
         sys.exit(1)
-    _deadline = time.time() + 180
-    _refreshed = False
-    while time.time() < _deadline:
-        if _proc.poll() is not None:
-            _wxlog(f"wx_key.exe exited code={_proc.returncode}")
-            break
-        if os.path.exists(_cache_path):
-            try:
-                with open(_cache_path, 'r', encoding='utf-8') as f:
-                    _new_ts = _json_wx.load(f).get('flutter.key_timestamp', '')
-                if _new_ts and _new_ts != _old_ts:
-                    _wxlog(f"CACHE REFRESHED: {_old_ts} -> {_new_ts}")
-                    _refreshed = True
-                    break
-            except Exception:
-                pass
-        time.sleep(1)
-    if _proc.poll() is None:
-        try:
-            _proc.kill()
-            _wxlog("killed wx_key.exe")
-        except Exception:
-            pass
-    _wxlog(f"done, refreshed={_refreshed}")
-    sys.exit(0 if _refreshed else 2)
+    # ponytail: don't poll-and-kill. The previous 180s timeout killed wx_key.exe
+    # before the user noticed the window. Just launch and exit; the WSL side
+    # polls the cache file separately and the user closes wx_key.exe themselves.
+    _wxlog("sentinel exiting, wx_key.exe still running")
+    sys.exit(0)
 
 # Kill-other-pythonw dispatch: scheduled-task elevation can't be terminated
 # from a non-admin WSL shell ('Access Denied'), so to clean up stuck admin
