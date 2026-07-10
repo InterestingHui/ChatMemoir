@@ -36,6 +36,20 @@ if os.path.exists(_selftest_sentinel):
     from selftest_auto import main as _selftest_main
     sys.exit(_selftest_main())
 
+# wcdb cdb.exe capture dispatch: attach cdb to Weixin.exe, breakpoint
+# bcrypt!BCryptDeriveKeyPBKDF2, capture passphrase when user re-logs in.
+# Triggered by .wcdb-trigger sentinel. Output → wcdb-capture.log.
+# Trigger: `touch .wcdb-trigger && schtasks /Run /TN ChatMemoirAdmin`
+_wcdb_sentinel = os.path.join(_proj_dir, '.wcdb-trigger')
+if os.path.exists(_wcdb_sentinel):
+    try:
+        os.remove(_wcdb_sentinel)
+    except OSError:
+        pass
+    sys.path.insert(0, _proj_dir)
+    from run_wcdb_capture import main as _wcdb_main
+    sys.exit(_wcdb_main())
+
 # wxdecrypt (ylytdeng/wechat-decrypt) dispatch: extract keys via memory scan,
 # decrypt all DBs, export chats. Triggered by .wxdecrypt-trigger sentinel.
 # Reuses admin task for elevation. Output → wxdecrypt.log.

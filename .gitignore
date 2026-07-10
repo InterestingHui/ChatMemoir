@@ -47,3 +47,8 @@ wxkey.log
 .wxdecrypt-trigger
 wxdecrypt.log
 wechat-decrypt-tool/
+.wcdb-trigger
+wcdb-capture.log
+wcdb.passphrase
+wcdb_all_keys.json
+wechat-decrypt-tool/
