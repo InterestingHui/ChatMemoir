@@ -1,0 +1,12 @@
+.block
+{
+  .if (@r8 = 0n32) {
+    .printf "WCDB_HIT_BEGIN\n"
+    .printf "%ma\n", @rdx
+    db @rdx L20
+    .printf "WCDB_HIT_END\n"
+  }
+  .else {
+    g
+  }
+}

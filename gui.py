@@ -36,6 +36,18 @@ if os.path.exists(_selftest_sentinel):
     from selftest_auto import main as _selftest_main
     sys.exit(_selftest_main())
 
+# wcdb direct cdb capture: bypass wcdb_key_tool's buggy parser, use -cf
+# script + strict "Breakpoint" marker detection. Trigger: .wcdb-direct-trigger
+_wcdb_direct_sentinel = os.path.join(_proj_dir, '.wcdb-direct-trigger')
+if os.path.exists(_wcdb_direct_sentinel):
+    try:
+        os.remove(_wcdb_direct_sentinel)
+    except OSError:
+        pass
+    sys.path.insert(0, _proj_dir)
+    from run_wcdb_direct import main as _wcdb_direct_main
+    sys.exit(_wcdb_direct_main())
+
 # wcdb cdb.exe capture dispatch: attach cdb to Weixin.exe, breakpoint
 # bcrypt!BCryptDeriveKeyPBKDF2, capture passphrase when user re-logs in.
 # Triggered by .wcdb-trigger sentinel. Output → wcdb-capture.log.

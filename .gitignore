@@ -52,3 +52,6 @@ wcdb-capture.log
 wcdb.passphrase
 wcdb_all_keys.json
 wechat-decrypt-tool/
+.wcdb-direct-trigger
+wcdb-direct.log
+wcdb-cdb-output.txt
