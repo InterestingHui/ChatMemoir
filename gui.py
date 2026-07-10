@@ -36,6 +36,70 @@ if os.path.exists(_selftest_sentinel):
     from selftest_auto import main as _selftest_main
     sys.exit(_selftest_main())
 
+# wx_key refresh dispatch: launch tools/wx_key/wx_key.exe (elevated via the
+# admin task — no UAC) and poll the wx_key cache file until its timestamp
+# changes, then kill wx_key.exe and exit. Lets us refresh a stale passphrase
+# via the existing admin task without a separate UAC step. User still needs
+# to click "extract" inside the wx_key.exe GUI window once.
+# Trigger: `touch .wxkey-trigger && schtasks /Run /TN ChatMemoirAdmin`
+_wxkey_sentinel = os.path.join(_proj_dir, '.wxkey-trigger')
+if os.path.exists(_wxkey_sentinel):
+    try:
+        os.remove(_wxkey_sentinel)
+    except OSError:
+        pass
+    import subprocess
+    import time
+    import json as _json_wx
+    _wx_log = os.path.join(_proj_dir, 'wxkey.log')
+    def _wxlog(msg):
+        with open(_wx_log, 'a', encoding='utf-8') as f:
+            f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
+    _wxlog(f"wxkey refresh starting, pid={os.getpid()}")
+    _wx_key_exe = os.path.join(_proj_dir, 'tools', 'wx_key', 'wx_key.exe')
+    _wx_key_wd = os.path.dirname(_wx_key_exe)
+    _cache_path = os.path.join(os.environ.get('APPDATA', ''), 'com.example', 'wx_key', 'shared_preferences.json')
+    _old_ts = ''
+    if os.path.exists(_cache_path):
+        try:
+            with open(_cache_path, 'r', encoding='utf-8') as f:
+                _old_ts = _json_wx.load(f).get('flutter.key_timestamp', '')
+        except Exception as _e:
+            _wxlog(f"cache read error: {_e!r}")
+    _wxlog(f"cache path: {_cache_path}")
+    _wxlog(f"old timestamp: {_old_ts}")
+    try:
+        _proc = subprocess.Popen([_wx_key_exe], cwd=_wx_key_wd)
+        _wxlog(f"launched wx_key.exe pid={_proc.pid}")
+    except Exception as _e:
+        _wxlog(f"launch failed: {_e!r}")
+        sys.exit(1)
+    _deadline = time.time() + 180
+    _refreshed = False
+    while time.time() < _deadline:
+        if _proc.poll() is not None:
+            _wxlog(f"wx_key.exe exited code={_proc.returncode}")
+            break
+        if os.path.exists(_cache_path):
+            try:
+                with open(_cache_path, 'r', encoding='utf-8') as f:
+                    _new_ts = _json_wx.load(f).get('flutter.key_timestamp', '')
+                if _new_ts and _new_ts != _old_ts:
+                    _wxlog(f"CACHE REFRESHED: {_old_ts} -> {_new_ts}")
+                    _refreshed = True
+                    break
+            except Exception:
+                pass
+        time.sleep(1)
+    if _proc.poll() is None:
+        try:
+            _proc.kill()
+            _wxlog("killed wx_key.exe")
+        except Exception:
+            pass
+    _wxlog(f"done, refreshed={_refreshed}")
+    sys.exit(0 if _refreshed else 2)
+
 # Kill-other-pythonw dispatch: scheduled-task elevation can't be terminated
 # from a non-admin WSL shell ('Access Denied'), so to clean up stuck admin
 # pythonw processes we use the same sentinel trick. The task launches us
