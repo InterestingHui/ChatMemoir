@@ -469,6 +469,7 @@ def get_key_inner(pid, process_infos):
     pre_addresses = []
     keys = []
     key_set = set()
+    yara_hits = 0  # ponytail: diagnostic — distinguish "YARA didn't match" from "scan range too small"
     for base_address, region_size in process_infos:
         memory = read_process_memory(process_handle, base_address, region_size)
         # 定义目标数据（如内存或文件内容）
@@ -490,6 +491,7 @@ def get_key_inner(pid, process_infos):
                     for string in match.strings:
                         instance = string.instances[0]
                         offset, content = instance.offset, instance.matched_data
+                        yara_hits += 1
                         # Method 1: read 8-byte pointer from match → read 32 bytes at address (4.0.x)
                         addr = read_num(target_data, offset, 8)
                         if addr:
@@ -501,7 +503,9 @@ def get_key_inner(pid, process_infos):
                                 keys.append(inline_key)
                                 key_set.add(inline_key)
                         # Method 3: read 32 bytes from wide range around match (passphrase may be far from anchor)
-                        for delta in range(-256, 257, 8):
+                        # ponytail: ±256 missed 4.1.11.24 — widened to ±4096. Step 8 may miss unaligned;
+                        # tighten to step 4 if 4096 still fails.
+                        for delta in range(-4096, 4097, 8):
                             pos = offset + delta
                             if 0 <= pos and pos + KEY_SIZE <= len(target_data):
                                 near_key = target_data[pos:pos + KEY_SIZE]
@@ -513,7 +517,7 @@ def get_key_inner(pid, process_infos):
                                         continue
                                     keys.append(near_key)
                                     key_set.add(near_key)
-    logger.info(f"[get_key_inner] Found {len(pre_addresses)} pointer candidates and {len(keys)} inline candidates from YARA")
+    logger.info(f"[get_key_inner] YARA landed {yara_hits} anchor hits; found {len(pre_addresses)} pointer candidates and {len(keys)} inline candidates")
     for pre_address in pre_addresses:
         if any([base_address <= pre_address <= base_address + region_size - KEY_SIZE for base_address, region_size in
                 process_infos]):
