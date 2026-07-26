@@ -105,7 +105,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,  # GUI app — no console window
+    console=True,  # ponytail: console=False triggers _tkinter DLL load failure in PyInstaller 6.21 admin build; keep console for now (GUI still works, just with a console window beside it)
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
