@@ -68,7 +68,7 @@ def batch_export():
     """
     st = time.time()
 
-    db_dir = 'wxid_ttlo1sb5pyh811/db_storage'  # 解析后的数据库路径，例如：./db_storage
+    db_dir = sys.argv[1] if len(sys.argv) > 1 else 'decrypted/wxid_ka89oj7i1mz622/db_storage'
     db_version = 4  # 数据库版本，4 or 3
     output_dir = './data/'  # 输出文件夹
 
@@ -135,6 +135,9 @@ def batch_export_by_fmt():
 
 if __name__ == '__main__':
     freeze_support()
-    export()
-    # batch_export()
-    # batch_export_by_fmt()
+    # Default: export single friend (uid from argv[2], or list contacts if absent).
+    # Use 'batch' as argv[1] to batch-export all contacts as HTML.
+    if len(sys.argv) > 1 and sys.argv[1] == 'batch':
+        batch_export()
+    else:
+        export()

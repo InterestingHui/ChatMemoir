@@ -90,6 +90,19 @@ if os.path.exists(_native_sentinel):
     from run_native_decrypt import main as _native_main
     sys.exit(_native_main())
 
+# Export dispatch: batch-export all chats as HTML from the decrypted DBs.
+# Wraps 3-exporter.py batch_export(); runs after a successful native decrypt.
+# Trigger: `touch .wxexport-trigger && schtasks /Run /TN ChatMemoirAdmin`
+_export_sentinel = os.path.join(_proj_dir, '.wxexport-trigger')
+if os.path.exists(_export_sentinel):
+    try:
+        os.remove(_export_sentinel)
+    except OSError:
+        pass
+    sys.path.insert(0, _proj_dir)
+    from run_export import main as _export_main
+    sys.exit(_export_main())
+
 # wx_key refresh dispatch: launch tools/wx_key/wx_key.exe (elevated via the
 # admin task — no UAC) and poll the wx_key cache file until its timestamp
 # changes, then kill wx_key.exe and exit. Lets us refresh a stale passphrase
