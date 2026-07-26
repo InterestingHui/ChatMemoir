@@ -20,6 +20,11 @@ class ThreadMixin:
                 if on_done:
                     self.root.after(0, lambda: on_done(result))
             except Exception as e:
+                # Capture traceback here in the worker thread — by the time
+                # on_error runs on the main thread via root.after(), the
+                # exception context is gone and format_exc() returns "NoneType: None".
+                import traceback as _tb
+                e._gui_traceback = _tb.format_exc()
                 if on_error:
                     self.root.after(0, lambda: on_error(e))
                 else:

@@ -489,5 +489,11 @@ class DecryptionMixin:
         """解密失败后显示错误"""
         self._loading_progress.stop()
         self._btn_cancel.pack_forget()
+        # ponytail: prefer the worker-thread-captured traceback (e._gui_traceback);
+        # _tb.format_exc() called here returns "NoneType: None" because the
+        # except block in run_task has already exited by the time this runs.
+        tb = getattr(e, '_gui_traceback', None) or '(no traceback captured)'
+        self.log(f"解析失败 ({type(e).__name__}): {e}")
+        self.log(tb)
         self.set_loading_status(f"解析失败: {e}")
         self._btn_retry.pack(side="left", pady=(12, 0))
