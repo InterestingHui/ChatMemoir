@@ -301,12 +301,25 @@ class DecryptionMixin:
         # 4. 加载联系人
         self.set_loading_status("正在加载联系人...")
         self.set_loading_progress(1, 1, "")
+        # ponytail: SQLite file locking via \\wsl.localhost\ UNC paths is flaky
+        # on Windows ('database is locked' on audio2text_db.create() even with
+        # no other process holding the file). If db_dir is on a UNC path,
+        # shallow-copy to %TEMP% and use the local path for the ArchiveConnection.
+        # Affects users running the project from a WSL UNC root.
+        connect_dir = db_dir
+        if db_dir.startswith('\\\\') or db_dir.lower().startswith('//'):
+            import tempfile as _tf
+            import shutil as _sh
+            local_root = _tf.mkdtemp(prefix='chatmemoir_gui_')
+            local_dir = _sh.copytree(db_dir, os.path.join(local_root, 'db_storage'))
+            self.log(f"  UNC 路径 SQLite 锁不稳，已复制到本地: {local_dir}")
+            connect_dir = local_dir
         self.log("正在连接数据库...")
-        conn = ArchiveConnection(db_dir, self._db_version)
+        conn = ArchiveConnection(connect_dir, self._db_version)
         self.database = conn.get_interface()
         if self.database is None:
-            raise RuntimeError(f"数据库初始化失败: {db_dir}")
-        self.db_dir_actual = db_dir
+            raise RuntimeError(f"数据库初始化失败: {connect_dir}")
+        self.db_dir_actual = db_dir  # keep the original (UNC) path for display
         self._config['last_db_dir'] = db_dir
         _save_config(self._config)
 
@@ -487,6 +500,14 @@ class DecryptionMixin:
 
     def _on_decrypt_error(self, e):
         """解密失败后显示错误"""
+        import os as _os, time as _t
+        try:
+            with open(_os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'gui_error_caller.log'), 'a', encoding='utf-8') as _f:
+                _f.write(f"[{_t.strftime('%H:%M:%S')}] _on_decrypt_error called with e={e!r} type={type(e).__name__} has_tb={hasattr(e, '_gui_traceback')}\n")
+                if hasattr(e, '_gui_traceback'):
+                    _f.write(f"--- traceback ---\n{e._gui_traceback}\n----\n")
+        except Exception:
+            pass
         self._loading_progress.stop()
         self._btn_cancel.pack_forget()
         # ponytail: prefer the worker-thread-captured traceback (e._gui_traceback);
