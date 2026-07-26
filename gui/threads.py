@@ -24,11 +24,25 @@ class ThreadMixin:
                 # on_error runs on the main thread via root.after(), the
                 # exception context is gone and format_exc() returns "NoneType: None".
                 import traceback as _tb
-                e._gui_traceback = _tb.format_exc()
+                tb_str = _tb.format_exc()
+                # ponytail: write to a sidecar log so we can see the real cause
+                # even if e._gui_traceback doesn't survive the lambda closure.
+                try:
+                    import os as _os, time as _t
+                    with open(_os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'gui_worker_error.log'), 'a', encoding='utf-8') as _f:
+                        _f.write(f"[{_t.strftime('%H:%M:%S')}] captured e={e!r} type={type(e).__name__}\n{tb_str}\n----\n")
+                except Exception:
+                    pass
+                e._gui_traceback = tb_str
                 if on_error:
-                    self.root.after(0, lambda: on_error(e))
+                    # ponytail: default-arg capture — Python 3's `except ... as e`
+                    # clears e (sets to None) at end of the except block, so a
+                    # plain `lambda: on_error(e)` would deliver None to the
+                    # callback by the time root.after() fires it on the main
+                    # thread. `e=e` snapshots the reference now.
+                    self.root.after(0, lambda e=e: on_error(e))
                 else:
-                    self.root.after(0, lambda: self._show_error(e))
+                    self.root.after(0, lambda e=e: self._show_error(e))
             finally:
                 self.root.after(0, lambda: self.set_running(False))
         threading.Thread(target=wrapper, daemon=True).start()
