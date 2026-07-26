@@ -68,6 +68,24 @@ def main():
     else:
         _log(f"_socket.pyd present ({os.path.getsize(socket_pyd)} bytes)")
 
+    # 2b. ponytail: PyInstaller 6.21 sometimes drops entire .pyd family from
+    # the bundle (observed with admin pythonw build context). Copy every
+    # *.pyd from Python's DLLs dir that isn't already in _internal. Skips
+    # _test*.pyd (not needed at runtime, would bloat the bundle).
+    src_dlls = os.path.join(sys.base_prefix, 'DLLs')
+    if os.path.isdir(src_dlls):
+        copied = 0
+        for fname in os.listdir(src_dlls):
+            if not fname.lower().endswith('.pyd'):
+                continue
+            if fname.startswith('_test'):
+                continue
+            dst = os.path.join(internal, fname)
+            if not os.path.isfile(dst):
+                shutil.copy2(os.path.join(src_dlls, fname), dst)
+                copied += 1
+        _log(f"copied {copied} missing .pyd files from {src_dlls}")
+
     # 3. Find the latest build temp dir and copy fresh dist back if needed
     import tempfile
     temp_dir = tempfile.gettempdir()
