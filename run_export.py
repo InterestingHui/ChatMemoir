@@ -96,8 +96,20 @@ def main():
         return 1
     _log(f"db_dir={db_dir}")
 
+    # ponytail: SQLite file locking via \\wsl.localhost\ UNC paths is flaky
+    # on Windows ("database is locked" even with no other process holding
+    # the file). Copy db_storage to a local %TEMP% dir for the export run,
+    # then point 3-exporter.py at the local copy.
+    import shutil
+    import tempfile
+    temp_root = tempfile.mkdtemp(prefix='chatmemoir_export_')
+    local_db_dir = os.path.join(temp_root, 'db_storage')
+    _log(f"Copying db_storage to local temp (avoids UNC SQLite lock): {local_db_dir}")
+    shutil.copytree(db_dir, local_db_dir)
+    _log("Copy complete")
+
     proc = subprocess.Popen(
-        [sys.executable, '-u', '3-exporter.py', 'batch', db_dir],
+        [sys.executable, '-u', '3-exporter.py', 'batch', local_db_dir],
         cwd=PROJ,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
