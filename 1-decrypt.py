@@ -55,6 +55,18 @@ def dump_v4():
     r_4 = get_info_v4()  # 微信4.0
     for session_info in r_4:
         print(session_info)
+        # ponytail: skip sessions without a data_dir — get_info_v4() iterates
+        # every Weixin.exe / WeChatAppEx.exe process, including enterprise
+        # WeChat (2.x) and mini-program hosts whose data_dir is unavailable.
+        # Without this guard, get_decode_code_v4('') raises ValueError and
+        # crashes dump_v4 mid-loop, even though the primary session already
+        # decrypted successfully.
+        if not session_info.data_dir:
+            print(f'[!] skip: no data_dir (PID={session_info.pid}, version={session_info.version})')
+            continue
+        if not session_info.key:
+            print(f'error! 未找到key，请重启微信后再试 (PID={session_info.pid})')
+            continue
         me = Me()
         me.data_dir = session_info.data_dir
         me.uid = session_info.uid
@@ -62,9 +74,6 @@ def dump_v4():
         me.xor_key = get_decode_code_v4(session_info.data_dir)
         output_dir = session_info.uid  # 数据库输出文件夹
         key = session_info.key
-        if not key:
-            print('error! 未找到key，请重启微信后再试')
-            continue
         data_dir = session_info.data_dir
         total, failed = decrypt_v4.decrypt_db_files(key, src_dir=data_dir, dest_dir=output_dir,
                                     key_map=session_info.key_map if session_info.key_map else None)

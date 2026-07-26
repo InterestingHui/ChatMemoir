@@ -9,6 +9,7 @@
 @Description : 
 """
 
+import sys
 import time
 from multiprocessing import freeze_support
 
@@ -20,11 +21,26 @@ from memoir import ArchiveConnection, MessageType
 def export():
     st = time.time()
 
-    db_dir = 'wxid_ttlo1sb5pyh811/db_storage'  # 解析后的数据库路径，例如：./db_storage
-    db_version = 4  # 数据库版本，4 or 3
-
-    uid = 'wxid_034440iur9f312'  # 要导出好友的wxid
+    # ponytail: db_dir and target uid from argv so the script works for any
+    # decrypted account. Defaults preserve old behavior.
+    db_dir = sys.argv[1] if len(sys.argv) > 1 else 'decrypted/wxid_ka89oj7i1mz622/db_storage'
+    uid = sys.argv[2] if len(sys.argv) > 2 else None  # required: target friend wxid
+    db_version = 4
     output_dir = './data/'  # 输出文件夹
+
+    conn = ArchiveConnection(db_dir, db_version)  # 创建数据库连接
+    database = conn.get_interface()  # 获取数据库接口
+
+    if not uid:
+        # No uid specified — list contacts so the user can pick one next run.
+        print('No uid specified. Available contacts (first 20):')
+        for i, c in enumerate(database.get_contacts()):
+            if i >= 20:
+                print('... (truncated, pass uid as argv[2])')
+                break
+            print(f'  {c.uid}\t{c.nickname}')
+        return
+    contact = database.get_contact_by_username(uid)  # 查找某个联系人
 
     conn = ArchiveConnection(db_dir, db_version)  # 创建数据库连接
     database = conn.get_interface()  # 获取数据库接口

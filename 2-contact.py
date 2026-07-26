@@ -8,11 +8,14 @@
 @File        : memoir-2-contact.py 
 @Description : 
 """
+import sys
 import time
 
 from memoir import ArchiveConnection
 
-db_dir = 'wxid_ttlo1sb5pyh811/db_storage'  # 第一步解析后的数据库路径，例如：./wxid_xxxx/db_storage
+# ponytail: db_dir from argv[1] so the same script works for any decrypted
+# account. Default to the most recently decrypted one if not specified.
+db_dir = sys.argv[1] if len(sys.argv) > 1 else 'decrypted/wxid_ka89oj7i1mz622/db_storage'
 db_version = 4  # 数据库版本，4 or 3
 
 conn = ArchiveConnection(db_dir, db_version)  # 创建数据库连接
