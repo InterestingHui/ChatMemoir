@@ -1,0 +1,79 @@
+name: Build ChatMemoir.exe
+
+# Build a Windows exe on every tag push (v*) and attach to a new Release.
+# Reuses ChatMemoir.spec + run_patch_dist.py logic for tcl/tk + .pyd patching.
+#
+# Trigger locally with: git tag v0.1.0 && git push origin v0.1.0
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed by softprops/action-gh-release to create release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          # Install runtime deps (project's requirements.txt)
+          pip install -r requirements.txt
+          # pefile for DLL scan, pyinstaller for packaging
+          pip install pefile pyinstaller
+
+      - name: Build with PyInstaller
+        shell: pwsh
+        run: |
+          python -m PyInstaller ChatMemoir.spec --noconfirm --clean
+
+      - name: Patch tcl/tk + .pyd (post-build)
+        shell: pwsh
+        run: |
+          # The post-build patch in run_patch_dist.py copies Python's tcl8.6,
+          # tk8.6, and any missing *.pyd files into dist/ChatMemoir/_internal.
+          # PyInstaller 6.21 sometimes drops these in admin pythonw context;
+          # on GHA it usually works without the patch but it's cheap insurance.
+          python run_patch_dist.py
+
+      - name: Verify exe
+        shell: pwsh
+        run: |
+          $exe = "dist/ChatMemoir/ChatMemoir.exe"
+          if (-not (Test-Path $exe)) {
+            throw "exe not found at $exe"
+          }
+          $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
+          Write-Host "Built: $exe ($size MB)"
+
+      - name: Zip dist
+        shell: pwsh
+        run: |
+          # Zip the entire dist/ChatMemoir folder for distribution
+          Compress-Archive -Path dist/ChatMemoir -DestinationPath ChatMemoir-${{ github.ref_name }}-win-x64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatMemoir-${{ github.ref_name }}-win-x64
+          path: dist/ChatMemoir/
+          retention-days: 30
+
+      - name: Attach to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ChatMemoir-${{ github.ref_name }}-win-x64.zip
+          generate_release_notes: true
