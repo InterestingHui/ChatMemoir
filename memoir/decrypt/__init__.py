@@ -12,7 +12,6 @@ from typing import List
 
 import psutil
 
-from memoir.decrypt.session_v3 import dump_session_info_v3
 from memoir.decrypt.session_v4 import dump_session_info_v4
 from memoir.decrypt.common import SessionInfo
 
@@ -37,6 +36,9 @@ def get_info_v4() -> List[SessionInfo]:
 
 
 def get_info_v3(version_list) -> List[SessionInfo]:
+    # ponytail: lazy import — session_v3 pulls in winreg/pythoncom/pymem which
+    # are Windows-only. Only require them when actually querying v3 sessions.
+    from memoir.decrypt.session_v3 import dump_session_info_v3
     result = []
     for process in psutil.process_iter(['name', 'exe', 'pid']):
         if process.name() == 'WeChat.exe':
