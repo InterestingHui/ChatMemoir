@@ -356,13 +356,18 @@ def _verify_keys_chunk(args):
     (passed via the chunk tuple; multiprocessing can't share module globals).
     """
     keys_chunk, buf, internal_db_keys, chunk_idx, chunk_total = args
+    # ponytail: when internal_db_keys are present we're on 4.1.10+ — the
+    # non-XOR passphrase mode cannot hit (real passphrase is XOR'd), so
+    # skipping it saves ~500ms × candidates per worker. raw mode stays
+    # because it's nearly free (PBKDF2 count=2) and covers 4.0.x fallback.
+    skip_plain_passphrase = bool(internal_db_keys)
     for i, key in enumerate(keys_chunk):
         # Try as raw derived key (WeChat 4.0.x) — fast, PBKDF2 count=2
         if is_ok(key, buf):
             logger.info(f"[get_key_] Key verified in chunk {chunk_idx}/{chunk_total} (raw derived key)")
             return (key, False)
         # Try as passphrase (WeChat 4.1.x, pre-4.1.10) — expensive PBKDF2 count=256000
-        if is_ok_passphrase(key, buf):
+        if not skip_plain_passphrase and is_ok_passphrase(key, buf):
             logger.info(f"[get_key_] Key verified in chunk {chunk_idx}/{chunk_total} (passphrase, 4.1.x format)")
             return (key, True)
         # 4.1.10+: passphrase is XOR'd with internal_db_key in memory.
