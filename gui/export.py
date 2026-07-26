@@ -45,6 +45,56 @@ class ExportMixin:
             on_error=lambda e: self._on_export_error(e),
         )
 
+    def _on_batch_export(self):
+        """Batch-export every contact as HTML. Mirrors run_export.py."""
+        if not self.database:
+            messagebox.showwarning("提示", "数据库未加载")
+            return
+        if self.running:
+            return
+        if not messagebox.askyesno(
+            "确认批量导出",
+            f"将为 {len(self.contacts)} 个联系人导出 HTML。\n这可能需要几分钟。继续？",
+        ):
+            return
+        self.run_task(
+            self._do_batch_export,
+            on_done=lambda _: self._on_export_done(),
+            on_error=lambda e: self._on_export_error(e),
+        )
+
+    def _do_batch_export(self):
+        # ponytail: reuse project's HtmlExporter + batch_export flow. Output
+        # under the user's selected output_dir (default ./data/).
+        from scribe.config import FileType
+        from scribe import HtmlExporter
+        from memoir import MessageType
+
+        output_dir = self._output_dir.get()
+        if not os.path.isabs(output_dir):
+            output_dir = os.path.join(self._script_dir, output_dir)
+        os.makedirs(output_dir, exist_ok=True)
+        time_range = ['2020-01-01 00:00:00', '2099-12-31 23:59:59']
+        total = len(self.contacts)
+        for i, contact in enumerate(self.contacts):
+            self.root.after(0, lambda i=i, t=total, n=(contact.remark or contact.nickname or contact.uid):
+                            self.set_status(f"批量导出 {i+1}/{t}: {n}"))
+            try:
+                scribe = HtmlExporter(
+                    self.database,
+                    contact,
+                    output_dir=output_dir,
+                    type_=FileType.HTML,
+                    message_types={MessageType.Text, MessageType.Image, MessageType.LinkMessage},
+                    time_range=time_range,
+                    progress_callback=lambda pct: self.root.after(0, lambda p=pct: self.set_progress(int(p * 100))),
+                )
+                scribe.start()
+            except Exception as e:
+                # Log and continue — one bad contact shouldn't abort the batch.
+                self.log(f"  跳过 {contact.uid}: {e}")
+        return output_dir
+
     def _do_export(self, fmt, time_range):
         from scribe.config import FileType
         from scribe import (TxtExporter, HtmlExporter, DocxExporter,

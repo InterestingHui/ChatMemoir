@@ -241,6 +241,12 @@ class ScreenMixin:
         self._btn_export = ttk.Button(btn_row, text="导出聊天记录",
                                       command=self._on_export, style="Accent.TButton")
         self._btn_export.pack(side="left")
+        # ponytail: batch-export all contacts as HTML (mirrors run_export.py).
+        # Useful when user wants everything in one click instead of clicking
+        # each contact individually.
+        self._btn_batch_export = ttk.Button(btn_row, text="批量导出全部",
+                                            command=self._on_batch_export)
+        self._btn_batch_export.pack(side="left", padx=(6, 0))
 
         self._export_progress = ttk.Progressbar(btn_row, mode="determinate", length=200)
         self._export_status = ttk.Label(btn_row, text="", foreground=TEXT_SECONDARY, style="Card.TLabel")
