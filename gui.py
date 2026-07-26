@@ -115,6 +115,18 @@ if os.path.exists(_build_sentinel):
     from run_build import main as _build_main
     sys.exit(_build_main())
 
+# Patch dist dispatch: post-build tcl/tk patch + copy latest temp dist back.
+# Trigger: `touch .wxpatch-trigger && schtasks /Run /TN ChatMemoirAdmin`
+_patch_sentinel = os.path.join(_proj_dir, '.wxpatch-trigger')
+if os.path.exists(_patch_sentinel):
+    try:
+        os.remove(_patch_sentinel)
+    except OSError:
+        pass
+    sys.path.insert(0, _proj_dir)
+    from run_patch_dist import main as _patch_main
+    sys.exit(_patch_main())
+
 # wx_key refresh dispatch: launch tools/wx_key/wx_key.exe (elevated via the
 # admin task — no UAC) and poll the wx_key cache file until its timestamp
 # changes, then kill wx_key.exe and exit. Lets us refresh a stale passphrase
