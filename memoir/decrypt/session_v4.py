@@ -23,6 +23,8 @@ from multiprocessing import freeze_support
 import pymem
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA512
+import psutil
+import re
 import yara
 import re
 
@@ -252,44 +254,147 @@ def verify_key(key: bytes, buffer: bytes, flag, result):
         return False
 
 
-def is_ok_passphrase(passphrase, buf):
-    """WeChat 4.1.x: passphrase → PBKDF2(256000) → derived key → HMAC verify."""
+def is_ok_passphrase(passphrase, buf, internal_db_key=None):
+    """WeChat 4.1.x: passphrase → PBKDF2(256000) → derived key → HMAC verify.
+
+    4.1.10+ obfuscates the in-memory passphrase by XORing it with a 32-byte
+    internal_db_key hardcoded in Weixin.dll. When internal_db_key is provided,
+    undo the XOR before PBKDF2. PATTERN + approach: LifeArchiveProject/WeChatDataAnalysis.
+    """
+    if internal_db_key is not None:
+        passphrase = bytes(a ^ b for a, b in zip(passphrase, internal_db_key))
     salt = buf[:SALT_SIZE]
     derived_key = PBKDF2(passphrase, salt, dkLen=KEY_SIZE, count=ROUND_COUNT, hmac_hash_module=SHA512)
     return is_ok(derived_key, buf)
 
 
+# ponytail: 4.1.10+ obfuscation anchor — 4 consecutive `mov rdx, imm64` (0x48 0xBA + 8 bytes)
+# followed by `test rax, rax`. The 4 imm64 values concatenate to the 32-byte internal_db_key.
+_DLL_KEY_PATTERN = re.compile(
+    rb"^\x48\xBA(.{8})"
+    rb".{3,8}?"
+    rb"\x48\xBA(.{8})"
+    rb".{3,8}?"
+    rb"\x48\xBA(.{8})"
+    rb".{3,8}?"
+    rb"\x48\xBA(.{8})"
+    rb".{3,8}?"
+    rb"\x48\x85\xC0",
+    re.DOTALL,
+)
+_DLL_CODE_SECTION_CHARACTERISTIC = 0x20000000
+
+
+def find_weixin_dll_path(pid):
+    """Locate Weixin.dll loaded by the running WeChat process. Returns '' if not found."""
+    try:
+        proc = psutil.Process(pid)
+        for module in proc.memory_maps(grouped=False):
+            if module.path and 'Weixin.dll' in module.path:
+                return module.path
+    except Exception:
+        pass
+    return ''
+
+
+def extract_internal_db_keys_from_dll(dll_path):
+    """Static scan Weixin.dll code sections for the 32-byte internal_db_key pattern.
+
+    Returns a list of 32-byte candidates (typically 1-2). Empty list on error.
+    No admin required — reads the DLL file directly from disk.
+    """
+    if not dll_path or not os.path.isfile(dll_path):
+        return []
+    try:
+        import pefile
+    except ImportError:
+        logger.warning("[extract_internal_db_keys] pefile not installed — cannot scan Weixin.dll")
+        return []
+    matches = []
+    try:
+        pe = pefile.PE(dll_path, fast_load=True)
+        image_base = int(pe.OPTIONAL_HEADER.ImageBase)
+        for section in pe.sections:
+            if not (int(section.Characteristics) & _DLL_CODE_SECTION_CHARACTERISTIC):
+                continue
+            sec_size = int(section.SizeOfRawData)
+            sec_file_offset = int(section.PointerToRawData)
+            with open(dll_path, 'rb') as f:
+                f.seek(sec_file_offset)
+                data = f.read(sec_size)
+            offset = 0
+            while True:
+                idx = data.find(b'\x48\xBA', offset)
+                if idx == -1:
+                    break
+                m = _DLL_KEY_PATTERN.match(data[idx:idx + 85])
+                if m:
+                    key = m.group(1) + m.group(2) + m.group(3) + m.group(4)
+                    matches.append(key)
+                    offset = idx + len(m.group(0))
+                else:
+                    offset = idx + 1
+        pe.close()
+    except Exception as e:
+        logger.warning(f"[extract_internal_db_keys] pefile parse failed: {e}")
+    # Dedupe while preserving order
+    seen = set()
+    unique = []
+    for k in matches:
+        if k not in seen:
+            seen.add(k)
+            unique.append(k)
+    logger.info(f"[extract_internal_db_keys] Found {len(unique)} internal_db_key candidates in {dll_path}")
+    return unique
+
+
 def _verify_keys_chunk(args):
-    """Worker: verify a chunk of candidate keys against buf. Returns (key, is_passphrase) or None."""
-    keys_chunk, buf, chunk_idx, chunk_total = args
+    """Worker: verify a chunk of candidate keys against buf. Returns (key, is_passphrase) or None.
+
+    For 4.1.10+ obfuscated passphrases, also tries each candidate XOR'd with
+    every internal_db_key. internal_db_keys is the same list for all chunks
+    (passed via the chunk tuple; multiprocessing can't share module globals).
+    """
+    keys_chunk, buf, internal_db_keys, chunk_idx, chunk_total = args
     for i, key in enumerate(keys_chunk):
         # Try as raw derived key (WeChat 4.0.x) — fast, PBKDF2 count=2
         if is_ok(key, buf):
             logger.info(f"[get_key_] Key verified in chunk {chunk_idx}/{chunk_total} (raw derived key)")
             return (key, False)
-        # Try as passphrase (WeChat 4.1.x) — expensive PBKDF2 count=256000
+        # Try as passphrase (WeChat 4.1.x, pre-4.1.10) — expensive PBKDF2 count=256000
         if is_ok_passphrase(key, buf):
             logger.info(f"[get_key_] Key verified in chunk {chunk_idx}/{chunk_total} (passphrase, 4.1.x format)")
             return (key, True)
+        # 4.1.10+: passphrase is XOR'd with internal_db_key in memory.
+        # Try each candidate against each internal_db_key. The right combo
+        # makes HMAC verify; the rest fail fast at the HMAC check.
+        for internal_db_key in internal_db_keys:
+            if is_ok_passphrase(key, buf, internal_db_key):
+                logger.info(f"[get_key_] Key verified in chunk {chunk_idx}/{chunk_total} "
+                            f"(obfuscated passphrase, 4.1.10+ format)")
+                return (key, True)
         if (i + 1) % 200 == 0:
             logger.info(f"[get_key_] Chunk {chunk_idx}/{chunk_total} progress: {i+1}/{len(keys_chunk)}")
     return None
 
 
-def get_key_(keys, buf):
+def get_key_(keys, buf, internal_db_keys=None):
     # ponytail: parallel verification via Pool.imap_unordered. The previous
     # sequential loop took ~35min for 14k candidates on WeChat 4.1.8.29 (each
     # is_ok_passphrase runs PBKDF2-SHA512 x256000). The earlier comment about
     # "multiprocessing.Value serialization crash on Python 3.14" applied to a
     # shared Synchronized flag — we don't need one, each worker just returns
     # its own result. First non-None wins, Pool.terminate() kills the rest.
+    internal_db_keys = internal_db_keys or []
     n_workers = max(2, min(multiprocessing.cpu_count() // 2, 8))
     chunk_size = max(1, len(keys) // (n_workers * 8))  # 8 chunks per worker for load balancing
     chunks = []
     for i in range(0, len(keys), chunk_size):
-        chunks.append((keys[i:i + chunk_size], buf, len(chunks) + 1, (len(keys) + chunk_size - 1) // chunk_size))
+        chunks.append((keys[i:i + chunk_size], buf, internal_db_keys,
+                       len(chunks) + 1, (len(keys) + chunk_size - 1) // chunk_size))
     logger.info(f"[get_key_] Verifying {len(keys)} YARA candidate keys via Pool "
-                f"({n_workers} workers, {len(chunks)} chunks of ~{chunk_size})")
+                f"({n_workers} workers, {len(chunks)} chunks of ~{chunk_size}, "
+                f"{len(internal_db_keys)} internal_db_keys)")
     with multiprocessing.Pool(processes=n_workers) as pool:
         for result in pool.imap_unordered(_verify_keys_chunk, chunks):
             if result:
@@ -297,7 +402,8 @@ def get_key_(keys, buf):
                 key, is_passphrase = result
                 logger.info(f"[get_key_] Returning key, is_passphrase={is_passphrase}")
                 return bytes.hex(key), is_passphrase
-    logger.warning("[get_key_] No YARA candidate key passed verification (tried raw and passphrase modes)")
+    logger.warning(f"[get_key_] No YARA candidate key passed verification "
+                   f"(tried raw, passphrase, and {len(internal_db_keys)} internal_db_key obfuscation modes)")
     return None, False
 
 
@@ -532,7 +638,7 @@ def get_key_inner(pid, process_infos):
     return keys
 
 
-def get_key(pid, process_handle, buf):
+def get_key(pid, process_handle, buf, internal_db_keys=None):
     """Scans process memory for WCDB encryption key or passphrase.
     Returns (key_hex, is_passphrase) or (None, False)."""
     process_infos = get_memory_regions(process_handle)
@@ -559,7 +665,7 @@ def get_key(pid, process_handle, buf):
     raw_count = len(keys)
     keys = list(set(keys))
     logger.info(f"[get_key] {len(keys)} unique candidate keys after dedup (from {raw_count} raw)")
-    return get_key_(keys, buf)
+    return get_key_(keys, buf, internal_db_keys)
 
 
 def get_wx_dir(process_handle):
@@ -732,7 +838,16 @@ def dump_session_info_v4(pid) -> SessionInfo | None:
             logger.info(f"[dump_session_info_v4] Using {db_file_path} for YARA verification")
             with open(db_file_path, 'rb') as f:
                 buf = f.read()
-            key_hex, is_passphrase = get_key(pid, process_handle, buf)
+            # ponytail: 4.1.10+ obfuscates in-memory passphrase with internal_db_key
+            # hardcoded in Weixin.dll. Extract candidates up-front so verification
+            # tries (raw, passphrase, passphrase XOR each internal_db_key) for every
+            # candidate. Skipping this on 4.1.10+ wastes ~60min of PBKDF2 then fails.
+            weixin_dll = find_weixin_dll_path(pid)
+            internal_db_keys = extract_internal_db_keys_from_dll(weixin_dll) if weixin_dll else []
+            if not internal_db_keys:
+                logger.warning("[dump_session_info_v4] No Weixin.dll found or no internal_db_key candidates "
+                               "— falling back to non-obfuscated verification (pre-4.1.10 mode)")
+            key_hex, is_passphrase = get_key(pid, process_handle, buf, internal_db_keys)
             if key_hex:
                 session_info.key = key_hex
                 if is_passphrase:
