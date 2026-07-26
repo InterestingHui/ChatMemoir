@@ -3,18 +3,23 @@
 
 **ChatMemoir 解密修复**
 
-修复 ChatMemoir（留痕）项目的微信数据库解密功能，使其兼容微信 4.x 系列（当前测试版本 4.1.8.29）。ChatMemoir 是一个微信聊天记录提取和导出工具，采用三步流水线：解密数据库 → 查看联系人 → 导出聊天记录。当前解密步骤因微信版本更新导致内存特征匹配失败，需要更新密钥提取逻辑。
+修复 ChatMemoir（留痕）项目的微信数据库解密功能，使其兼容微信 4.x 系列（当前测试版本 **4.1.11.24**）。ChatMemoir 是一个微信聊天记录提取和导出工具，采用三步流水线：解密数据库 → 查看联系人 → 导出聊天记录。解密步骤需要从运行中的微信进程内存提取 WCDB 加密密钥；4.1.10+ 引入了 XOR 混淆机制，旧版直接扫描内存拿到的"passphrase"其实是 `passphrase XOR internal_db_key`，必须先从 `Weixin.dll` 提取 `internal_db_key` 反混淆后才能通过 PBKDF2 验证。
 
-**Core Value:** 让用户能够成功完成完整的「解密 → 联系人 → 导出」三步流程，特别是能从微信 4.x 系列版本中正确提取数据库解密密钥。
+**Core Value:** 让用户能够成功完成完整的「解密 → 联系人 → 导出」三步流程，特别是能从微信 4.1.10+ 系列版本中正确提取数据库解密密钥。
 
 ### Constraints
 
 - **平台：** Windows only（解密步骤依赖进程内存读取）
 - **权限：** 需要管理员权限打开微信进程（PROCESS_ALL_ACCESS）
-- **前提条件：** 微信必须在运行状态
-- **技术栈：** Python + ctypes + YARA + pymem
-- **测试环境：** 微信 4.1.8.29（用户实际环境）
-- **兼容性：** 不能破坏微信 4.0 已有的解密能力
+- **前提条件：** 微信必须在运行状态、已扫码登录
+- **技术栈：** Python + ctypes + YARA + pymem + pefile（解析 Weixin.dll PE 头）
+- **测试环境：** 微信 4.1.11.24（用户实际环境；账号 `wxid_ka89oj7i1mz622_452d`）
+- **兼容性：** 4.1.10+ XOR 路径自动启用；4.0/4.1.x 走老的 raw/passphrase 路径
+- **打包：** PyInstaller spec (`ChatMemoir.spec`) → `dist/ChatMemoir/ChatMemoir.exe`，通过 `.wxbuild-trigger` sentinel + `ChatMemoirAdmin` 计划任务触发（无 UAC、admin 权限）
+
+### Key Discovery: 4.1.10+ XOR Obfuscation
+
+WeChat 4.1.10+ 把内存中的 raw passphrase 用一个 32-byte `internal_db_key` 做 XOR。`internal_db_key` 硬编码在 `Weixin.dll` 的代码段（4 个连续的 `mov rdx, imm64` + `test rax, rax` 指令模式）。`memoir/decrypt/session_v4.py:extract_internal_db_keys_from_dll()` 用 pefile + 正则扫描 DLL 提取候选，验证时对每个内存候选 XOR 每个 DLL key + PBKDF2 验证。思路来自 [LifeArchiveProject/WeChatDataAnalysis](https://github.com/LifeArchiveProject/WeChatDataAnalysis)。
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:codebase/STACK.md -->
