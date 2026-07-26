@@ -117,6 +117,11 @@ def main():
         encoding='utf-8',
         errors='replace',
         bufsize=1,
+        # ponytail: 3-exporter.py uses print() which encodes to the console
+        # codepage. Windows default is GBK (cp936), which can't encode emoji
+        # in contact remarks (e.g. 🐟) → UnicodeEncodeError mid-batch-export.
+        # Force UTF-8 so emoji doesn't crash the whole batch.
+        env={**os.environ, 'PYTHONIOENCODING': 'utf-8'},
     )
     t_out = threading.Thread(target=_stream_reader, args=(proc.stdout,), daemon=True)
     t_err = threading.Thread(target=_stream_reader, args=(proc.stderr,), daemon=True)
