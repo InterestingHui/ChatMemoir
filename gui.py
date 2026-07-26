@@ -103,6 +103,18 @@ if os.path.exists(_export_sentinel):
     from run_export import main as _export_main
     sys.exit(_export_main())
 
+# Build dispatch: package the project into dist/ChatMemoir/ChatMemoir.exe
+# via PyInstaller. Trigger: `touch .wxbuild-trigger && schtasks /Run /TN ChatMemoirAdmin`
+_build_sentinel = os.path.join(_proj_dir, '.wxbuild-trigger')
+if os.path.exists(_build_sentinel):
+    try:
+        os.remove(_build_sentinel)
+    except OSError:
+        pass
+    sys.path.insert(0, _proj_dir)
+    from run_build import main as _build_main
+    sys.exit(_build_main())
+
 # wx_key refresh dispatch: launch tools/wx_key/wx_key.exe (elevated via the
 # admin task — no UAC) and poll the wx_key cache file until its timestamp
 # changes, then kill wx_key.exe and exit. Lets us refresh a stale passphrase
