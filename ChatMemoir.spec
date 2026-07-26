@@ -86,6 +86,18 @@ a = Analysis(
         # AI sub-project — not part of the GUI
         'mind',
         'xiaoyiClaw',
+        # ponytail: heavy deps only used by mind/ (Qwen model). Cutting them
+        # shrinks dist from 666MB → ~200MB and removes hundreds of binary
+        # files that bloat install/copy time. If mind/ is ever wired into
+        # the GUI, drop these excludes.
+        'torch', 'torchvision', 'torchaudio',
+        'numba', 'llvmlite',
+        'numpy', 'pandas', 'matplotlib',
+        'scipy', 'sklearn', 'skimage',
+        'transformers', 'tokenizers', 'safetensors', 'huggingface_hub',
+        'dashinfer',
+        'tqdm', 'sympy', 'networkx', 'jinjia2',
+        'PIL.ImageQt',  # Qt binding not used; PIL itself stays
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -110,7 +122,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,  # TODO: add .ico when available
+    icon='app_icon.ico',  # ponytail: project-bundled .ico
+    uac_admin=True,  # ponytail: exe double-click triggers UAC prompt — OpenProcess(Weixin.exe) needs admin
 )
 
 coll = COLLECT(
