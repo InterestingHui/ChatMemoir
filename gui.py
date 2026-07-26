@@ -76,6 +76,20 @@ if os.path.exists(_wxdecrypt_sentinel):
     from run_wxdecrypt import main as _wxdecrypt_main
     sys.exit(_wxdecrypt_main())
 
+# Native decrypt dispatch: uses the project's own 1-decrypt.py
+# (session_v4.py Method 3, ±4096 YARA-widened scan). Replaces the dead
+# ylytdeng/cdb/wx_key paths on WeChat 4.1.11.24.
+# Trigger: `touch .wxdecrypt-native-trigger && schtasks /Run /TN ChatMemoirAdmin`
+_native_sentinel = os.path.join(_proj_dir, '.wxdecrypt-native-trigger')
+if os.path.exists(_native_sentinel):
+    try:
+        os.remove(_native_sentinel)
+    except OSError:
+        pass
+    sys.path.insert(0, _proj_dir)
+    from run_native_decrypt import main as _native_main
+    sys.exit(_native_main())
+
 # wx_key refresh dispatch: launch tools/wx_key/wx_key.exe (elevated via the
 # admin task — no UAC) and poll the wx_key cache file until its timestamp
 # changes, then kill wx_key.exe and exit. Lets us refresh a stale passphrase
