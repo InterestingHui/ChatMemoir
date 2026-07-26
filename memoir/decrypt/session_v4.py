@@ -503,9 +503,12 @@ def get_key_inner(pid, process_infos):
                                 keys.append(inline_key)
                                 key_set.add(inline_key)
                         # Method 3: read 32 bytes from wide range around match (passphrase may be far from anchor)
-                        # ponytail: ±256 missed 4.1.11.24 — widened to ±4096. Step 8 may miss unaligned;
-                        # tighten to step 4 if 4096 still fails.
-                        for delta in range(-4096, 4097, 8):
+                        # ponytail: ±256 missed 4.1.11.24 → ±4096/step=8 still failed (43717 candidates,
+                        # all PBKDF2 verification failed on wxid_ka89oj7i1mz622_452d / WeChat 4.1.11.24).
+                        # Tightening step 8→4 covers 4-byte aligned passphrase; doubles candidates but
+                        # is cheaper than widening range. If this still fails, the YARA anchor itself
+                        # is wrong on 4.1.11.24 and we need to RE Weixin.dll for the new structure.
+                        for delta in range(-4096, 4097, 4):
                             pos = offset + delta
                             if 0 <= pos and pos + KEY_SIZE <= len(target_data):
                                 near_key = target_data[pos:pos + KEY_SIZE]
