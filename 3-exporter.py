@@ -68,7 +68,8 @@ def batch_export():
     """
     st = time.time()
 
-    db_dir = sys.argv[1] if len(sys.argv) > 1 else 'decrypted/wxid_ka89oj7i1mz622/db_storage'
+    # argv layout: [prog, 'batch', <db_dir?>]; 'batch' is the mode selector.
+    db_dir = sys.argv[2] if len(sys.argv) > 2 else 'decrypted/wxid_ka89oj7i1mz622/db_storage'
     db_version = 4  # 数据库版本，4 or 3
     output_dir = './data/'  # 输出文件夹
 

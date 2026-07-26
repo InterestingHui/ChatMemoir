@@ -46,22 +46,55 @@ def main():
     _log(f"PROJ={PROJ}")
     _log(f"python={sys.executable}")
 
-    # Find the most recently decrypted account under decrypted/
+    # Find the most recently decrypted account under decrypted/.
+    # Sort by info.json mtime (not the dir itself — directory mtime on
+    # \\wsl.localhost\ UNC paths often doesn't update across re-decrypts).
+    # Override via sentinel file content: write account name into
+    # .wxexport-trigger to force a specific account.
     decrypted_root = os.path.join(PROJ, 'decrypted')
     if not os.path.isdir(decrypted_root):
         _log(f"ERROR: no decrypted/ dir at {decrypted_root}")
         return 1
-    candidates = sorted(
-        [d for d in os.listdir(decrypted_root) if os.path.isdir(os.path.join(decrypted_root, d))],
-        key=lambda d: os.path.getmtime(os.path.join(decrypted_root, d)),
-        reverse=True,
-    )
-    if not candidates:
-        _log("ERROR: no decrypted accounts found")
-        return 1
-    account = candidates[0]
+
+    sentinel = os.path.join(PROJ, '.wxexport-trigger')
+    forced_account = ''
+    if os.path.exists(sentinel):
+        # sentinel was already consumed by gui.py dispatch — read its
+        # content via the sidecar .wxexport-account file instead.
+        pass
+    sidecar = os.path.join(PROJ, '.wxexport-account')
+    if os.path.exists(sidecar):
+        with open(sidecar, 'r', encoding='utf-8') as f:
+            forced_account = f.read().strip()
+        try:
+            os.remove(sidecar)
+        except OSError:
+            pass
+
+    def _info_mtime(d):
+        p = os.path.join(decrypted_root, d, 'info.json')
+        return os.path.getmtime(p) if os.path.exists(p) else 0
+
+    if forced_account:
+        account = forced_account
+        _log(f"Using forced account={account} (from .wxexport-account sidecar)")
+    else:
+        candidates = sorted(
+            [d for d in os.listdir(decrypted_root)
+             if os.path.isdir(os.path.join(decrypted_root, d)) and os.path.exists(os.path.join(decrypted_root, d, 'info.json'))],
+            key=_info_mtime,
+            reverse=True,
+        )
+        if not candidates:
+            _log("ERROR: no decrypted accounts with info.json found")
+            return 1
+        account = candidates[0]
+        _log(f"Using account={account} (most recent info.json mtime)")
     db_dir = os.path.join(decrypted_root, account, 'db_storage')
-    _log(f"Using account={account} db_dir={db_dir}")
+    if not os.path.isdir(db_dir):
+        _log(f"ERROR: db_dir does not exist: {db_dir}")
+        return 1
+    _log(f"db_dir={db_dir}")
 
     proc = subprocess.Popen(
         [sys.executable, '-u', '3-exporter.py', 'batch', db_dir],
