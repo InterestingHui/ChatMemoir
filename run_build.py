@@ -114,6 +114,33 @@ def main():
         _log(f"SUCCESS — exe at {exe_path} ({size_mb:.1f} MB)")
     else:
         _log(f"ERROR — exe not found at {exe_path}")
+        return proc.returncode
+
+    # ponytail: PyInstaller 6.21 sometimes drops tcl/tk data files even when
+    # the spec lists them as datas (lib/tcl8 becomes an empty dir, init.tcl
+    # missing → 'Can't find a usable init.tcl' on launch). Patch dist directly
+    # by copying Python's bundled tcl8.6/tk8.6 into _internal/_tcl_data and
+    # _internal/_tk_data. Skip if init.tcl already present.
+    internal_dir = os.path.join(PROJ, 'dist', 'ChatMemoir', '_internal')
+    target_tcl = os.path.join(internal_dir, '_tcl_data', 'init.tcl')
+    if not os.path.isfile(target_tcl):
+        src_tcl = os.path.join(sys.base_prefix, 'tcl', 'tcl8.6')
+        src_tk = os.path.join(sys.base_prefix, 'tcl', 'tk8.6')
+        if os.path.isdir(src_tcl):
+            dst_tcl = os.path.join(internal_dir, '_tcl_data')
+            if os.path.isdir(dst_tcl):
+                shutil.rmtree(dst_tcl)
+            shutil.copytree(src_tcl, dst_tcl)
+            _log(f"patched tcl: {src_tcl} → {dst_tcl}")
+        if os.path.isdir(src_tk):
+            dst_tk = os.path.join(internal_dir, '_tk_data')
+            if os.path.isdir(dst_tk):
+                shutil.rmtree(dst_tk)
+            shutil.copytree(src_tk, dst_tk)
+            _log(f"patched tk: {src_tk} → {dst_tk}")
+    else:
+        _log("tcl init.tcl already present, skipping patch")
+
     return proc.returncode
 
 

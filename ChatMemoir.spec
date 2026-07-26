@@ -15,8 +15,22 @@ Notes:
   but we keep UAC out — user runs the exe as admin when decrypting.
 """
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+import os as _os
+import sys as _sys
 
 block_cipher = None
+
+# ponytail: PyInstaller 6.21's tkinter hook sometimes misses the Tcl/Tk data
+# files (especially when run via pythonw.exe + admin task), leaving the exe
+# to crash at Tk() creation: "Can't find a usable init.tcl". Pull them
+# explicitly from the Python install's tcl/ directory.
+_tcl_lib = _os.path.join(_sys.base_prefix, 'tcl', 'tcl8.6')
+_tk_lib = _os.path.join(_sys.base_prefix, 'tcl', 'tk8.6')
+_extra_datas = []
+if _os.path.isdir(_tcl_lib):
+    _extra_datas.append((_tcl_lib, '_internal/_tcl_data'))
+if _os.path.isdir(_tk_lib):
+    _extra_datas.append((_tk_lib, '_internal/_tk_data'))
 
 # protobuf *_pb2.py files import google.protobuf — collect all submodules
 hiddenimports = []
@@ -26,6 +40,10 @@ hiddenimports += collect_submodules('memoir.parser.util.protocbuf')
 # but explicit hidden imports are cheap insurance.
 hiddenimports += ['yara', 'pymem', 'pymem.process', 'psutil']
 hiddenimports += ['win32api', 'win32com', 'win32com.client', 'winreg', 'pythoncom']
+# ponytail: socket family — observed missing in a 6.21 onedir build
+# (ModuleNotFoundError: No module named '_socket' from inside
+# pyi_rth_multiprocessing during boot). Force-include to be safe.
+hiddenimports += ['_socket', 'socket', '_ssl', '_hashlib', 'select', '_multiprocessing']
 # pysilk-mod
 hiddenimports += ['pysilk']
 # Crypto (pycryptodome) — pull all submodules to be safe with PBKDF2 / HMAC
@@ -34,7 +52,7 @@ hiddenimports += collect_submodules('Crypto.Protocol')
 hiddenimports += collect_submodules('Crypto.Hash')
 
 # Data files that must be bundled next to the exe
-datas = []
+datas = list(_extra_datas)
 # ffmpeg.exe (audio transcoding for voice messages)
 datas += [('scribe/ffmpeg.exe', 'scribe')]
 datas += [('scribe/resources/ffmpeg.exe', 'scribe/resources')]
