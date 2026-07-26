@@ -41,8 +41,13 @@ datas += [('scribe/resources/ffmpeg.exe', 'scribe/resources')]
 datas += [('scribe/resources/template.html', 'scribe/resources')]
 # version_list.json (WeChat 3.x version detection)
 datas += [('memoir/decrypt/version_list.json', 'memoir/decrypt')]
-# All *_pb2.py files (protobuf compiled)
-datas += collect_data_files('memoir.parser.util.protocbuf', include='*.py')
+# All *_pb2.py files (protobuf compiled) — PyInstaller may treat them as
+# data rather than code (they're imported dynamically), so list them
+# explicitly as data files going to the right package dir.
+import glob as _glob
+_pb2_dir = 'memoir/parser/util/protocbuf'
+for _pb2 in _glob.glob(_pb2_dir + '/*_pb2.py'):
+    datas += [(_pb2, 'memoir/parser/util/protocbuf')]
 # wx_key.exe (external cache tool, invoked from GUI)
 datas += [('tools/wx_key/wx_key.exe', 'tools/wx_key')]
 
