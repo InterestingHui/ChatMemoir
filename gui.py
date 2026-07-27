@@ -126,6 +126,18 @@ if os.path.exists(_build_sentinel):
     from run_build import main as _build_main
     sys.exit(_build_main())
 
+# Debug-launch dispatch: run D:\ChatMemoir\ChatMemoir.exe with stderr capture.
+# Trigger: `touch .wxdebug-trigger && schtasks /Run /TN ChatMemoirAdmin`
+_debug_sentinel = os.path.join(_proj_dir, '.wxdebug-trigger')
+if os.path.exists(_debug_sentinel):
+    try:
+        os.remove(_debug_sentinel)
+    except OSError:
+        pass
+    sys.path.insert(0, _proj_dir)
+    from run_debug import main as _debug_main
+    sys.exit(_debug_main())
+
 # Patch dist dispatch: post-build tcl/tk patch + copy latest temp dist back.
 # Trigger: `touch .wxpatch-trigger && schtasks /Run /TN ChatMemoirAdmin`
 _patch_sentinel = os.path.join(_proj_dir, '.wxpatch-trigger')
