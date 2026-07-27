@@ -7,6 +7,17 @@ ChatMemoir 聊天记录导出工具
 import os
 import sys
 
+# ponytail: hide the console window that PyInstaller's console=True mode spawns.
+# We can't use console=False (PyInstaller 6.21 admin build has _tkinter DLL
+# load failure in that mode), so console=True + hide-on-startup is the
+# workaround. Logs still go to the various *.log files via sentinel runners.
+# SW_HIDE = 0. Must run before tkinter creates any windows.
+if sys.platform == 'win32':
+    import ctypes
+    _hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+    if _hwnd:
+        ctypes.windll.user32.ShowWindow(_hwnd, 0)
+
 # Headless verifier dispatch: if a sentinel file exists in the project root,
 # run verify_pipeline.py instead of the GUI. Lets us trigger E2E verification
 # via the existing admin scheduled task (schtasks /run /tn ChatMemoirAdmin)
