@@ -173,7 +173,13 @@ class Me:
                 dic = json.load(f)
                 self.name = dic.get('nickname', '')
                 self.uid = dic.get('username', '')
-                self.data_dir = dic.get('data_dir', '')
+                # ponytail: accept wx_dir (legacy field name from prior 1-decrypt.py
+                # versions and from session_v4.dump_session_info_v4 internal writes)
+                # in addition to data_dir (current Me.to_json field name). Without
+                # this fallback, Me().data_dir stays empty and image/file/video
+                # path resolution in manager_v4 fails silently — exports render
+                # text but all media is missing.
+                self.data_dir = dic.get('data_dir', '') or dic.get('wx_dir', '')
                 self.xor_key = dic.get('xor_key', '')
 
     def save_to_json(self, json_file):

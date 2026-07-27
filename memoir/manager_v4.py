@@ -87,7 +87,17 @@ class ArchiveV4(ArchiveInterface):
         self.audio2text_db = Audio2TextDB('Audio2Text.db')
 
     def init_database(self, db_dir=''):
-        Me().load_from_json(os.path.join(db_dir, 'info.json'))  # 加载自己的信息
+        # ponytail: info.json may live at db_dir/info.json (current 1-decrypt.py
+        # output) or db_dir/../info.json (legacy / pre-fix layout where the file
+        # is at the account root, not under db_storage/). Try both so the
+        # Me().data_dir load doesn't silently no-op and break image/file path
+        # resolution downstream.
+        info_candidate = os.path.join(db_dir, 'info.json')
+        if not os.path.exists(info_candidate):
+            parent_candidate = os.path.join(os.path.dirname(db_dir), 'info.json')
+            if os.path.exists(parent_candidate):
+                info_candidate = parent_candidate
+        Me().load_from_json(info_candidate)  # 加载自己的信息
         # print('初始化数据库', db_dir)
         self.db_dir = db_dir
         flag = True
