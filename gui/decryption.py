@@ -60,14 +60,53 @@ class DecryptionMixin:
 
     def _auto_decrypt(self):
         """自动检测微信版本、提取密钥、解密数据库、加载联系人"""
-        from memoir.decrypt import get_info_v4, get_info_v3
-        from memoir.decrypt import decrypt_v4, decrypt_v3
+        import sys as _sys
         from memoir import Me, ArchiveConnection
         import json as _json
 
+        # ponytail: always try live decrypt first. If the platform can't do it
+        # (Linux/WSL2), fall back to loading a previously-decrypted db_storage.
+        # On Windows this path is never taken — WeChat process memory is readable.
+        try:
+            return self._auto_decrypt_live()
+        except Exception as e:
+            if _sys.platform == 'win32':
+                raise  # on real Windows, surface the real error
+            self.log(f"实时解密不可用 ({e!r})，尝试加载已解密数据库...")
+            db_dir = self._try_load_existing_db_dir()
+            if not db_dir:
+                raise RuntimeError(
+                    f"解密失败且未找到已解密数据库。\n"
+                    f"实时解密错误: {e}\n"
+                    f"请在 Windows 上运行本程序完成解密。"
+                ) from e
+            self._db_version = 4
+            self.set_loading_status("正在加载联系人...")
+            self.set_loading_progress(1, 1, "")
+            self.log(f"加载已解密数据库: {db_dir}")
+            conn = ArchiveConnection(db_dir, self._db_version)
+            self.database = conn.get_interface()
+            if self.database is None:
+                raise RuntimeError(f"数据库初始化失败: {db_dir}")
+            self.db_dir_actual = db_dir
+            self._config['last_db_dir'] = db_dir
+            _save_config(self._config)
+            self.contacts = list(self.database.get_contacts())
+            self.log(f"加载完成: {len(self.contacts)} 个联系人")
+            return db_dir
+
+    def _auto_decrypt_live(self):
+        """实时解密: 扫描微信进程 → 提取密钥 → 解密数据库 → 加载联系人（仅 Windows）"""
+        import sys as _sys
+        from memoir import Me, ArchiveConnection
+        import json as _json
+
+        from memoir.decrypt import get_info_v4, get_info_v3
+        from memoir.decrypt import decrypt_v4, decrypt_v3
+
         # 1. 检查管理员权限
-        import ctypes
-        if not ctypes.windll.shell32.IsUserAnAdmin():
+        import ctypes as _ct
+        if not _ct.windll.shell32.IsUserAnAdmin():
             self.log("请以管理员身份运行本程序")
             self.log("右键 ChatMemoir.exe → 以管理员身份运行")
             raise PermissionError("需要管理员权限才能读取微信进程内存")
@@ -80,7 +119,6 @@ class DecryptionMixin:
             fast_info = self._fast_find_data_dir()
             if fast_info:
                 uid, data_dir, nick_name = fast_info
-                import sys as _sys
                 from memoir.decrypt.common import SessionInfo
                 si = SessionInfo()
                 si.uid = uid
@@ -187,74 +225,115 @@ class DecryptionMixin:
                 # re-derive per-DB keys via PBKDF2, and retry decrypt_db_files.
                 # Mirrors verify_pipeline.py's step_yara_fallback.
                 if total > 0 and failed == total:
-                    self.set_loading_status("正在通过 YARA 扫描提取新密钥...")
-                    self.log("  cache 密钥全部失败，启动 YARA 内存扫描...")
-                    import hashlib as _hl_yara
-                    from memoir.decrypt import get_info_v4
-                    yara_infos = []
-                    try:
-                        yara_infos = get_info_v4() or []
-                    except Exception as e:
-                        self.log(f"  YARA 扫描异常: {e!r}")
-                    yara_session = None
-                    for info in yara_infos:
-                        if info.key and info.uid == uid:
-                            yara_session = info
-                            break
-                    if yara_session is None and yara_infos:
-                        # exact-uid miss → take first session with a key
-                        for info in yara_infos:
-                            if info.key:
-                                yara_session = info
-                                break
-                    if yara_session is None or not yara_session.key:
-                        raise RuntimeError(
-                            f"全部 {total} 个数据库解密失败，且 YARA 内存扫描未能提取新密钥"
-                            f"（找到 {len(yara_infos)} 个 session，均无可用 key）。"
-                            f"WeChat 4.1.8.29 兼容性问题，YARA regex 可能需要更新，"
-                            f"或微信未登录。"
-                        )
-                    fresh_passphrase = yara_session.key
-                    self.log(f"  YARA 找到新密钥，前缀: {fresh_passphrase[:16]}...")
-                    # Re-collect db candidates (cheap ~1s walk) and re-derive keys.
-                    yara_candidates = []
-                    for root, dirs, files in os.walk(session_info.data_dir):
-                        for fn in files:
-                            if not fn.endswith('.db'):
-                                continue
-                            fp = os.path.join(root, fn)
-                            try:
+                    # ponytail: stale cache passphrase (WeChat rotates keys on
+                    # re-login). Before hitting the expensive YARA scan (which
+                    # can take hours with 500k+ candidates), try refreshing
+                    # wx_key to get the new passphrase.
+                    self.set_loading_status("缓存密钥过期，正在刷新 wx_key...")
+                    self.log("  cache 密钥全部失败，重新运行 wx_key 获取新密钥...")
+                    # Force wx_key re-run by clearing the stale cache check
+                    fresh_passphrase = self._get_wx_key_passphrase(uid, force_refresh=True)
+                    if fresh_passphrase:
+                        import hashlib as _hl2
+                        db_candidates2 = []
+                        for root, dirs, files in os.walk(session_info.data_dir):
+                            for fn in files:
+                                if not fn.endswith('.db'):
+                                    continue
+                                fp = os.path.join(root, fn)
                                 if os.path.getsize(fp) < 4096:
                                     continue
-                            except OSError:
-                                continue
-                            yara_candidates.append((root, fn))
-                    yara_total = len(yara_candidates)
-                    self.set_loading_status(f"正在用 YARA 密钥派生 {yara_total} 个数据库密钥...")
-                    self.set_loading_progress(0, max(yara_total, 1), "")
-                    yara_key_map = {}
-                    for i, (root, fn) in enumerate(yara_candidates):
-                        fp = os.path.join(root, fn)
-                        with open(fp, 'rb') as fh:
-                            salt = fh.read(16)
-                        dk = _hl_yara.pbkdf2_hmac('sha512', bytes.fromhex(fresh_passphrase), salt, 256000, dklen=32)
-                        rel_dir = os.path.relpath(root, session_info.data_dir)
-                        yara_key_map[os.path.join(rel_dir, fn)] = dk.hex()
-                        self.set_loading_progress(i + 1, yara_total, fn)
-                    self.log(f"  从 YARA 密钥重新派生 {len(yara_key_map)} 个密钥，重试解密...")
-                    # Force re-decrypt: skip_existing=False overwrites the 0-byte
-                    # stubs the cache-path attempt left behind.
-                    total, failed = decrypt_v4.decrypt_db_files(
-                        fresh_passphrase, src_dir=session_info.data_dir, dest_dir=output_dir,
-                        key_map=yara_key_map, skip_existing=False,
-                        progress_callback=self.set_loading_progress)
-                    self.log(f"  YARA 重试结果: {total - failed}/{total} 成功")
+                                db_candidates2.append((root, fn))
+                        total2 = len(db_candidates2)
+                        self.set_loading_status(f"正在用新密钥重新派生（{total2} 个）...")
+                        self.set_loading_progress(0, max(total2, 1), "")
+                        key_map2 = {}
+                        for i, (root, fn) in enumerate(db_candidates2):
+                            fp = os.path.join(root, fn)
+                            with open(fp, 'rb') as fh:
+                                salt = fh.read(16)
+                            dk = _hl2.pbkdf2_hmac('sha512', bytes.fromhex(fresh_passphrase), salt, 256000, dklen=32)
+                            rel_dir = os.path.relpath(root, session_info.data_dir)
+                            key_map2[os.path.join(rel_dir, fn)] = dk.hex()
+                            self.set_loading_progress(i + 1, total2, fn)
+                        key = key_map2.get(list(key_map2.keys())[0], fresh_passphrase) if key_map2 else fresh_passphrase
+                        session_info.key_map = key_map2
+                        session_info.key = list(key_map2.values())[0] if key_map2 else fresh_passphrase
+                        self.log(f"  wx_key 刷新成功，重新解密...")
+                        total, failed = decrypt_v4.decrypt_db_files(
+                            fresh_passphrase, src_dir=session_info.data_dir, dest_dir=output_dir,
+                            key_map=key_map2, skip_existing=False,
+                            progress_callback=self.set_loading_progress)
+                        self.log(f"  wx_key 重试结果: {total - failed}/{total} 成功")
                     if total > 0 and failed == total:
-                        raise RuntimeError(
-                            f"YARA 提取的密钥也无法解密任何数据库（{failed}/{total} 失败）。"
-                            f"WeChat 4.1.8.29 兼容性问题：YARA regex 命中内存但密钥仍不匹配，"
-                            f"需要更新 regex 模式或 key 解析逻辑。"
-                        )
+                        self.set_loading_status("正在通过 YARA 扫描提取新密钥...")
+                        self.log("  wx_key 刷新也失败，启动 YARA 内存扫描（可能需要较长时间）...")
+                        import hashlib as _hl_yara
+                        from memoir.decrypt import get_info_v4
+                        yara_infos = []
+                        try:
+                            yara_infos = get_info_v4() or []
+                        except Exception as e:
+                            self.log(f"  YARA 扫描异常: {e!r}")
+                        yara_session = None
+                        for info in yara_infos:
+                            if info.key and info.uid == uid:
+                                yara_session = info
+                                break
+                        if yara_session is None and yara_infos:
+                            # exact-uid miss → take first session with a key
+                            for info in yara_infos:
+                                if info.key:
+                                    yara_session = info
+                                    break
+                        if yara_session is None or not yara_session.key:
+                            raise RuntimeError(
+                                f"全部 {total} 个数据库解密失败，且 YARA 内存扫描未能提取新密钥"
+                                f"（找到 {len(yara_infos)} 个 session，均无可用 key）。"
+                                f"WeChat 4.1.8.29 兼容性问题，YARA regex 可能需要更新，"
+                                f"或微信未登录。"
+                            )
+                        fresh_passphrase = yara_session.key
+                        self.log(f"  YARA 找到新密钥，前缀: {fresh_passphrase[:16]}...")
+                        # Re-collect db candidates (cheap ~1s walk) and re-derive keys.
+                        yara_candidates = []
+                        for root, dirs, files in os.walk(session_info.data_dir):
+                            for fn in files:
+                                if not fn.endswith('.db'):
+                                    continue
+                                fp = os.path.join(root, fn)
+                                try:
+                                    if os.path.getsize(fp) < 4096:
+                                        continue
+                                except OSError:
+                                    continue
+                                yara_candidates.append((root, fn))
+                        yara_total = len(yara_candidates)
+                        self.set_loading_status(f"正在用 YARA 密钥派生 {yara_total} 个数据库密钥...")
+                        self.set_loading_progress(0, max(yara_total, 1), "")
+                        yara_key_map = {}
+                        for i, (root, fn) in enumerate(yara_candidates):
+                            fp = os.path.join(root, fn)
+                            with open(fp, 'rb') as fh:
+                                salt = fh.read(16)
+                            dk = _hl_yara.pbkdf2_hmac('sha512', bytes.fromhex(fresh_passphrase), salt, 256000, dklen=32)
+                            rel_dir = os.path.relpath(root, session_info.data_dir)
+                            yara_key_map[os.path.join(rel_dir, fn)] = dk.hex()
+                            self.set_loading_progress(i + 1, yara_total, fn)
+                        self.log(f"  从 YARA 密钥重新派生 {len(yara_key_map)} 个密钥，重试解密...")
+                        # Force re-decrypt: skip_existing=False overwrites the 0-byte
+                        # stubs the cache-path attempt left behind.
+                        total, failed = decrypt_v4.decrypt_db_files(
+                            fresh_passphrase, src_dir=session_info.data_dir, dest_dir=output_dir,
+                            key_map=yara_key_map, skip_existing=False,
+                            progress_callback=self.set_loading_progress)
+                        self.log(f"  YARA 重试结果: {total - failed}/{total} 成功")
+                        if total > 0 and failed == total:
+                            raise RuntimeError(
+                                f"YARA 提取的密钥也无法解密任何数据库（{failed}/{total} 失败）。"
+                                f"WeChat 4.1.8.29 兼容性问题：YARA regex 命中内存但密钥仍不匹配，"
+                                f"需要更新 regex 模式或 key 解析逻辑。"
+                            )
                 info_dir = os.path.join(output_dir, "db_storage")
             else:
                 me = Me()
@@ -328,6 +407,31 @@ class DecryptionMixin:
         self.log(f"加载完成: {len(self.contacts)} 个联系人")
         return db_dir
 
+    def _try_load_existing_db_dir(self):
+        """Find an already-decrypted db_storage directory (non-Windows path)."""
+        import os as _os
+        candidates = []
+        # 1. config last_db_dir
+        last = self._config.get('last_db_dir', '')
+        if last and _os.path.isdir(last):
+            candidates.append(last)
+        # 2. known project paths
+        base = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        for d in ['decrypted', 'verify-output', '.']:
+            for entry in _os.listdir(_os.path.join(base, d)) if _os.path.isdir(_os.path.join(base, d)) else []:
+                full = _os.path.join(base, d, entry)
+                db_storage = _os.path.join(full, 'db_storage')
+                if _os.path.isdir(db_storage):
+                    candidates.append(db_storage)
+        for db_dir in candidates:
+            if _os.path.isdir(db_dir) and _os.path.exists(_os.path.join(db_dir, 'contact', 'contact.db')):
+                self._db_version = 4
+                return db_dir
+            if _os.path.isdir(db_dir) and _os.path.exists(_os.path.join(db_dir, 'Msg')):
+                self._db_version = 3
+                return db_dir
+        return None
+
     def _read_wx_key_cache(self):
         """读取 wx_key 缓存的 passphrase（仅检查缓存，不启动 wx_key）。"""
         import json as _json
@@ -344,16 +448,17 @@ class DecryptionMixin:
                 pass
         return None
 
-    def _get_wx_key_passphrase(self, uid):
+    def _get_wx_key_passphrase(self, uid, force_refresh=False):
         """自动从 wx_key 工具获取 passphrase。
-        先检查缓存文件，没有则启动 wx_key.exe 等待其提取。"""
+        先检查缓存文件，没有则启动 wx_key.exe 等待其提取。
+        force_refresh=True 时跳过缓存，强制重新运行 wx_key。"""
         import json as _json
 
         wx_key_prefs = os.path.join(os.environ.get('APPDATA', ''),
                                      'com.example', 'wx_key', 'shared_preferences.json')
 
-        # 1. Try cached key first
-        if os.path.exists(wx_key_prefs):
+        # 1. Try cached key first (skip if force_refresh)
+        if not force_refresh and os.path.exists(wx_key_prefs):
             try:
                 with open(wx_key_prefs, 'r', encoding='utf-8') as f:
                     prefs = _json.load(f)
@@ -373,17 +478,28 @@ class DecryptionMixin:
 
         self.log(f"  启动 wx_key 自动提取密钥...")
         try:
+            # ponytail: record cache mtime BEFORE launching wx_key so we can
+            # detect a fresh write (force_refresh must not return the stale key).
+            _cache_mtime_before = os.path.getmtime(wx_key_prefs) if os.path.exists(wx_key_prefs) else 0
             os.startfile(wx_key_exe)
         except Exception:
             self.log(f"  无法启动 wx_key.exe")
             return self._ask_passphrase(uid)
 
-        # 3. Wait for wx_key to save the key (max 60 seconds)
+        # 3. Wait for wx_key to save a NEW key (max 60 seconds)
         self.log(f"  等待 wx_key 完成提取（最多60秒）...")
         for _ in range(120):
             time.sleep(0.5)
             if os.path.exists(wx_key_prefs):
                 try:
+                    _mtime = os.path.getmtime(wx_key_prefs)
+                    if force_refresh and _mtime <= _cache_mtime_before:
+                        # file hasn't been updated yet — wx_key still running
+                        try:
+                            self.root.update()
+                        except Exception:
+                            pass
+                        continue
                     with open(wx_key_prefs, 'r', encoding='utf-8') as f:
                         prefs = _json.load(f)
                     key = prefs.get('flutter.wechat_db_key', '')
@@ -465,6 +581,7 @@ class DecryptionMixin:
                      command=_skip).pack(side=tk.LEFT, padx=8)
 
             dialog.protocol("WM_DELETE_WINDOW", _skip)
+            self.apply_cursor(dialog)
 
         self.root.after(0, _show_dialog)
         # Busy-wait processing GUI events until user responds (max 5 min)

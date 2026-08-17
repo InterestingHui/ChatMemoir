@@ -64,12 +64,6 @@ class ChatMemoirApp(
         self.root.geometry(f"{int(960 * self._ui_scale)}x{int(700 * self._ui_scale)}")
         self.root.minsize(int(800 * self._ui_scale), int(560 * self._ui_scale))
         self.root.configure(bg=BG)
-        # ponytail: no custom cursor. The earlier @arrow.xbm bitmap cursor was
-        # added for "invisible cursor" in WSLg, but WSLg renders custom X
-        # cursors over RDP with mismatched hotspots/update cadence — the pointer
-        # visibly jumps while moving. The real invisibility cause was the
-        # unfocused/unraised window (fixed by the topmost flash below); with the
-        # window focused the default cursor renders natively and smoothly.
 
         if getattr(sys, 'frozen', False):
             self._script_dir = os.path.dirname(sys.executable)
@@ -93,6 +87,24 @@ class ChatMemoirApp(
         configure_styles()
         self._build_menu()
         self._build_screens()
+        # ponytail: WSLg 不渲染 Tk 的字体字形光标（默认光标=隐形），位图光标可见。
+        # 必须"逐控件"设置：option_add 的 *cursor 会被控件类样式（如 Text 的
+        # xterm，类模式比 *cursor 更specific）压过，鼠标扫过那些区域时光标在
+        # 位图/隐形间切换，表现为指针"跳变"。统一形状后既可见又稳定。
+        # Windows 原生渲染光标，跳过（UNC 反斜杠也会破坏 Tcl cursor 语法）。
+        self._cursor_spec = None
+        if os.name != 'nt':
+            _xbm = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'arrow.xbm')
+            if os.path.exists(_xbm):
+                try:
+                    self._cursor_spec = f"@{_xbm} {_xbm} #00E5FF black"
+                    self.root.option_add('*cursor', self._cursor_spec)
+                    for _pat in ('*Text.cursor', '*Entry.cursor', '*TCombobox.cursor',
+                                 '*TButton.cursor', '*Treeview.cursor'):
+                        self.root.option_add(_pat, self._cursor_spec)
+                    self.apply_cursor()
+                except Exception:
+                    pass
         self._show_screen("welcome")
         # ponytail: WSLg/XWayland 后台拉起的窗口不开在最前 — 闪一下 topmost
         # 把窗口顶到前台并抢焦点，否则用户找不到窗口（表现为"看不到/没置顶"）。
