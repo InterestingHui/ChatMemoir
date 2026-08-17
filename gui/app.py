@@ -78,4 +78,13 @@ class ChatMemoirApp(
         self._build_menu()
         self._build_screens()
         self._show_screen("welcome")
+        # ponytail: WSLg/XWayland 后台拉起的窗口不开在最前 — 闪一下 topmost
+        # 把窗口顶到前台并抢焦点，否则用户找不到窗口（表现为"看不到/没置顶"）。
+        try:
+            self.root.attributes("-topmost", True)
+            self.root.lift()
+            self.root.focus_force()
+            self.root.after(200, lambda: self.root.attributes("-topmost", False))
+        except Exception:
+            pass
         self._start_scheduler()
