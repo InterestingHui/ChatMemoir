@@ -103,6 +103,10 @@ class ChatMemoirApp(
                                  '*TButton.cursor', '*Treeview.cursor'):
                         self.root.option_add(_pat, self._cursor_spec)
                     self.apply_cursor()
+                    # 惰性创建的窗口（下拉列表、文件/消息对话框等）启动时不存在，
+                    # 监听全局 <Map>：任何控件一显示就补位图光标
+                    self.root.bind_all(
+                        '<Map>', lambda e: self.apply_cursor(e.widget), add='+')
                 except Exception:
                     pass
         self._show_screen("welcome")

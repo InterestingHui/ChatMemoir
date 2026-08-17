@@ -121,14 +121,11 @@ class ScreenMixin:
         btn_restart = ttk.Button(top_inner, text="重新开始", command=self._on_restart)
         btn_restart.pack(side="right")
 
-        # 主内容区：PanedWindow 分割
-        pw = ttk.PanedWindow(frame, orient="horizontal")
-        pw.pack(fill="both", expand=True, padx=0, pady=0)
-
-        # 左侧面板：联系人列表
-        left = ttk.Frame(pw, style="TFrame")
-        left.configure(width=320)
-        pw.add(left, weight=1)
+        # 主内容区：pack 布局（原 ttk.PanedWindow 的 sash 悬停时会把光标切成
+        # 字形光标 sb_h_double_arrow — WSLg 下即隐形区，弃用）
+        left = ttk.Frame(frame, style="TFrame", width=int(320 * self._ui_scale))
+        left.pack(side="left", fill="y")
+        left.pack_propagate(False)
 
         left_inner = ttk.Frame(left, style="TFrame")
         left_inner.pack(fill="both", expand=True, padx=12, pady=12)
@@ -160,9 +157,8 @@ class ScreenMixin:
         self._contact_tree.pack(fill="both", expand=True, pady=(8, 0))
 
         # 右侧面板：详情 + 导出
-        right = ttk.Frame(pw, style="TFrame")
-        right.configure(width=600)
-        pw.add(right, weight=2)
+        right = ttk.Frame(frame, style="TFrame")
+        right.pack(side="left", fill="both", expand=True)
 
         right_inner = ttk.Frame(right, style="TFrame")
         right_inner.pack(fill="both", expand=True, padx=12, pady=12)
