@@ -13,6 +13,7 @@ from gui.decryption import DecryptionMixin
 from gui.contacts import ContactMixin
 from gui.export import ExportMixin
 from gui.transcribe import TranscribeMixin
+from gui.scheduler import SchedulerMixin
 from gui.utils import UtilityMixin
 
 
@@ -25,6 +26,7 @@ class ChatMemoirApp(
     ContactMixin,
     ExportMixin,
     TranscribeMixin,
+    SchedulerMixin,
     UtilityMixin,
 ):
     def __init__(self, root):
@@ -33,6 +35,23 @@ class ChatMemoirApp(
         self.root.geometry("960x700")
         self.root.minsize(800, 560)
         self.root.configure(bg=BG)
+        # ponytail: WSLg/XWayland cannot render Tk's cursor-font glyphs, leaving
+        # the pointer invisible. A bitmap (@xbm) cursor is raw pixel data and
+        # composites fine. Applies to all widgets via the option database.
+        # ponytail: WSLg/XWayland cannot render Tk's cursor-font glyphs, leaving
+        # the pointer invisible. A bitmap (@xbm) cursor is raw pixel data and
+        # composites fine. Windows renders cursors natively — skip there (UNC
+        # backslashes also break the Tcl cursor spec).
+        if os.name != 'nt':
+            _xbm = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'arrow.xbm')
+            if os.path.exists(_xbm):
+                try:
+                    # source mask fg bg — cyan arrow, visible on light & dark
+                    _cur = f"@{_xbm} {_xbm} #00E5FF black"
+                    self.root.option_add('*cursor', _cur)
+                    self.root.config(cursor=_cur)
+                except Exception:
+                    pass
 
         self._config = _load_config()
 
@@ -59,3 +78,4 @@ class ChatMemoirApp(
         self._build_menu()
         self._build_screens()
         self._show_screen("welcome")
+        self._start_scheduler()

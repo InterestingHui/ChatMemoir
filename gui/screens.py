@@ -251,6 +251,9 @@ class ScreenMixin:
         self._export_progress = ttk.Progressbar(btn_row, mode="determinate", length=200)
         self._export_status = ttk.Label(btn_row, text="", foreground=TEXT_SECONDARY, style="Card.TLabel")
 
+        # 定时分析与 AI 报告卡片
+        self._build_schedule_card(right_inner)
+
         # 状态栏
         self._statusbar = ttk.Label(frame, text="就绪", foreground=TEXT_SECONDARY,
                                     font=("Microsoft YaHei UI", 8), background=BG, anchor="w")
