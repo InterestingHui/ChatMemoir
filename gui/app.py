@@ -17,6 +17,28 @@ from gui.scheduler import SchedulerMixin
 from gui.utils import UtilityMixin
 
 
+def _hidpi_scale(root):
+    """Estimate UI scale for HiDPI displays.
+
+    Windows: real system DPI via API. WSLg/RDP: every physical-size source is
+    fake (xdpyinfo mm is back-computed from 96 DPI, weston/xrandr report 0mm),
+    so fall back to a resolution heuristic. A `ui_scale` value in
+    .gui_config.json overrides this (calibration knob for odd setups).
+    """
+    if os.name == 'nt':
+        try:
+            import ctypes
+            return max(1.0, ctypes.windll.user32.GetDpiForSystem() / 96.0)
+        except Exception:
+            return 1.0
+    w = root.winfo_screenwidth()
+    if w >= 3000:
+        return 2.0
+    if w >= 2200:
+        return 1.5
+    return 1.0
+
+
 class ChatMemoirApp(
     ScreenMixin,
     MenuMixin,
@@ -32,8 +54,15 @@ class ChatMemoirApp(
     def __init__(self, root):
         self.root = root
         self.root.title("ChatMemoir 留痕")
-        self.root.geometry("960x700")
-        self.root.minsize(800, 560)
+        self._config = _load_config()
+        # HiDPI: 按物理 PPI 缩放（WSLg 谎报 96 DPI，高密度屏不缩放会太小）
+        self._ui_scale = self._config.get("ui_scale") or _hidpi_scale(self.root)
+        try:
+            self.root.tk.call('tk', 'scaling', (96.0 / 72.0) * self._ui_scale)
+        except Exception:
+            pass
+        self.root.geometry(f"{int(960 * self._ui_scale)}x{int(700 * self._ui_scale)}")
+        self.root.minsize(int(800 * self._ui_scale), int(560 * self._ui_scale))
         self.root.configure(bg=BG)
         # ponytail: no custom cursor. The earlier @arrow.xbm bitmap cursor was
         # added for "invisible cursor" in WSLg, but WSLg renders custom X
@@ -41,8 +70,6 @@ class ChatMemoirApp(
         # visibly jumps while moving. The real invisibility cause was the
         # unfocused/unraised window (fixed by the topmost flash below); with the
         # window focused the default cursor renders natively and smoothly.
-
-        self._config = _load_config()
 
         if getattr(sys, 'frozen', False):
             self._script_dir = os.path.dirname(sys.executable)
