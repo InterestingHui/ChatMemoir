@@ -35,23 +35,12 @@ class ChatMemoirApp(
         self.root.geometry("960x700")
         self.root.minsize(800, 560)
         self.root.configure(bg=BG)
-        # ponytail: WSLg/XWayland cannot render Tk's cursor-font glyphs, leaving
-        # the pointer invisible. A bitmap (@xbm) cursor is raw pixel data and
-        # composites fine. Applies to all widgets via the option database.
-        # ponytail: WSLg/XWayland cannot render Tk's cursor-font glyphs, leaving
-        # the pointer invisible. A bitmap (@xbm) cursor is raw pixel data and
-        # composites fine. Windows renders cursors natively — skip there (UNC
-        # backslashes also break the Tcl cursor spec).
-        if os.name != 'nt':
-            _xbm = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'arrow.xbm')
-            if os.path.exists(_xbm):
-                try:
-                    # source mask fg bg — cyan arrow, visible on light & dark
-                    _cur = f"@{_xbm} {_xbm} #00E5FF black"
-                    self.root.option_add('*cursor', _cur)
-                    self.root.config(cursor=_cur)
-                except Exception:
-                    pass
+        # ponytail: no custom cursor. The earlier @arrow.xbm bitmap cursor was
+        # added for "invisible cursor" in WSLg, but WSLg renders custom X
+        # cursors over RDP with mismatched hotspots/update cadence — the pointer
+        # visibly jumps while moving. The real invisibility cause was the
+        # unfocused/unraised window (fixed by the topmost flash below); with the
+        # window focused the default cursor renders natively and smoothly.
 
         self._config = _load_config()
 
