@@ -87,28 +87,10 @@ class ChatMemoirApp(
         configure_styles()
         self._build_menu()
         self._build_screens()
-        # ponytail: WSLg 不渲染 Tk 的字体字形光标（默认光标=隐形），位图光标可见。
-        # 必须"逐控件"设置：option_add 的 *cursor 会被控件类样式（如 Text 的
-        # xterm，类模式比 *cursor 更specific）压过，鼠标扫过那些区域时光标在
-        # 位图/隐形间切换，表现为指针"跳变"。统一形状后既可见又稳定。
-        # Windows 原生渲染光标，跳过（UNC 反斜杠也会破坏 Tcl cursor 语法）。
-        self._cursor_spec = None
-        if os.name != 'nt':
-            _xbm = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'arrow.xbm')
-            if os.path.exists(_xbm):
-                try:
-                    self._cursor_spec = f"@{_xbm} {_xbm} #00E5FF black"
-                    self.root.option_add('*cursor', self._cursor_spec)
-                    for _pat in ('*Text.cursor', '*Entry.cursor', '*TCombobox.cursor',
-                                 '*TButton.cursor', '*Treeview.cursor'):
-                        self.root.option_add(_pat, self._cursor_spec)
-                    self.apply_cursor()
-                    # 惰性创建的窗口（下拉列表、文件/消息对话框等）启动时不存在，
-                    # 监听全局 <Map>：任何控件一显示就补位图光标
-                    self.root.bind_all(
-                        '<Map>', lambda e: self.apply_cursor(e.widget), add='+')
-                except Exception:
-                    pass
+        # ponytail: 零光标定制。该机器 WSLg 的 RDP 指针转发对 X11 应用整链路
+        # 不渲染（默认字形、位图 @xbm、XCURSOR_THEME 三种形态裸 Tk 均复现
+        # 不可见）——应用侧无解，只能 Windows 侧 wsl --shutdown / --update 修
+        # 环境。健康环境默认光标本来就正常，勿再加光标补偿代码。
         self._show_screen("welcome")
         # ponytail: WSLg/XWayland 后台拉起的窗口不开在最前 — 闪一下 topmost
         # 把窗口顶到前台并抢焦点，否则用户找不到窗口（表现为"看不到/没置顶"）。

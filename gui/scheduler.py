@@ -421,7 +421,6 @@ footer {{ text-align:center; color:var(--muted); font-size:12px; padding:8px; }}
         btns.grid(row=3, column=0, columnspan=2, pady=14)
         _ttk.Button(btns, text="保存", style="Accent.TButton", command=_save).pack(side="left", padx=8)
         _ttk.Button(btns, text="取消", command=dlg.destroy).pack(side="left", padx=8)
-        self.apply_cursor(dlg)
 
 
 if __name__ == "__main__":

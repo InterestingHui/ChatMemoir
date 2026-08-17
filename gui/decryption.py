@@ -581,7 +581,6 @@ class DecryptionMixin:
                      command=_skip).pack(side=tk.LEFT, padx=8)
 
             dialog.protocol("WM_DELETE_WINDOW", _skip)
-            self.apply_cursor(dialog)
 
         self.root.after(0, _show_dialog)
         # Busy-wait processing GUI events until user responds (max 5 min)
