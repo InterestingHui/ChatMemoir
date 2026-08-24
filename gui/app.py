@@ -87,10 +87,15 @@ class ChatMemoirApp(
         configure_styles()
         self._build_menu()
         self._build_screens()
-        # ponytail: 零光标定制。该机器 WSLg 的 RDP 指针转发对 X11 应用整链路
-        # 不渲染（默认字形、位图 @xbm、XCURSOR_THEME 三种形态裸 Tk 均复现
-        # 不可见）——应用侧无解，只能 Windows 侧 wsl --shutdown / --update 修
-        # 环境。健康环境默认光标本来就正常，勿再加光标补偿代码。
+        # ponytail: 零光标定制；WSLg/msrdc 不渲染远程指针（X 服务端精灵完好、
+        # 裸 Tk 可复现），应用画软件光标兜底（点击穿透用 +2 偏移实现）。
+        # Windows 原生渲染正常，跳过。
+        if os.name != 'nt':
+            try:
+                from gui.swcursor import SoftwareCursor
+                self._swcursor = SoftwareCursor(self.root, scale=self._ui_scale)
+            except Exception:
+                pass
         self._show_screen("welcome")
         # ponytail: WSLg/XWayland 后台拉起的窗口不开在最前 — 闪一下 topmost
         # 把窗口顶到前台并抢焦点，否则用户找不到窗口（表现为"看不到/没置顶"）。
