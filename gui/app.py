@@ -87,23 +87,9 @@ class ChatMemoirApp(
         configure_styles()
         self._build_menu()
         self._build_screens()
-        # ponytail: 零光标定制；WSLg/msrdc 不渲染远程指针（X 服务端精灵完好、
-        # 裸 Tk 可复现），应用画软件光标兜底（点击穿透用 +2 偏移实现）。
-        # Windows 原生渲染正常，跳过。
-        if os.name != 'nt':
-            try:
-                from gui.swcursor import SoftwareCursor
-                self._swcursor = SoftwareCursor(self.root, scale=self._ui_scale)
-            except Exception:
-                pass
         self._show_screen("welcome")
-        # ponytail: WSLg/XWayland 后台拉起的窗口不开在最前 — 闪一下 topmost
-        # 把窗口顶到前台并抢焦点，否则用户找不到窗口（表现为"看不到/没置顶"）。
-        try:
-            self.root.attributes("-topmost", True)
-            self.root.lift()
-            self.root.focus_force()
-            self.root.after(200, lambda: self.root.attributes("-topmost", False))
-        except Exception:
-            pass
+        # ponytail: 不要 topmost/lift/focus_force 强制置顶 — 实测 WSLg RAIL 下
+        # 这套冲击会把窗口打入未放置状态（1x1 unmapped），连带指针通道失效。
+        # 也不要任何光标补偿代码 — 光标问题的根因是 whiteglass 主题缺失
+        # （已装 xcursor-themes）+ 上述窗口放置破坏，均已在环境/代码层根治。
         self._start_scheduler()
