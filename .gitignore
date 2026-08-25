@@ -55,3 +55,7 @@ wechat-decrypt-tool/
 .wcdb-direct-trigger
 wcdb-direct.log
 wcdb-cdb-output.txt
+
+# runtime artifacts
+decrypted/
+export/
