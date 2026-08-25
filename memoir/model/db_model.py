@@ -40,13 +40,15 @@ class ArchiveBase:
                 if os.path.exists(db_path):
                     self.db_file_name.append(os.path.basename(new_file_name))
                     # print('初始化数据库：', db_path)
-                    DB = sqlite3.connect(db_path, check_same_thread=False)
+                    DB = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
+                    DB.execute("PRAGMA journal_mode=WAL")
                     cursor = DB.cursor()
                     self.DB.append(DB)
                     self.cursor.append(cursor)
                     self.open_flag = True
         else:
-            self.DB = sqlite3.connect(db_path, check_same_thread=False)
+            self.DB = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
+            self.DB.execute("PRAGMA journal_mode=WAL")
             # '''创建游标'''
             self.cursor = self.DB.cursor()
             self.open_flag = True
