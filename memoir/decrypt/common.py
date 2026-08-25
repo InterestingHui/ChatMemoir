@@ -9,13 +9,13 @@
 @Description : 
 """
 import psutil
-import win32api
 
 if __name__ == '__main__':
     pass
 
 
 def get_version(pid):
+    import win32api
     p = psutil.Process(pid)
     version_info = win32api.GetFileVersionInfo(p.exe(), '\\')
     version = f"{win32api.HIWORD(version_info['FileVersionMS'])}.{win32api.LOWORD(version_info['FileVersionMS'])}.{win32api.HIWORD(version_info['FileVersionLS'])}.{win32api.LOWORD(version_info['FileVersionLS'])}"

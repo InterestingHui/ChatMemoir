@@ -11,22 +11,47 @@
 
 import ctypes
 import multiprocessing
+import hashlib
 import os.path
 
 import hmac
 import os
 import struct
 import time
-from ctypes import wintypes
 from multiprocessing import freeze_support
 
-import pymem
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA512
 import psutil
 import re
-import yara
-import re
+
+# ponytail: lazy imports for Windows-only deps — the entire module is
+# unusable on Linux, but let it import so non-decrypt flows (contact
+# loading / export) can work with already-decrypted databases.
+_yara = None
+_wintypes = None
+_pymem = None
+
+def _get_yara():
+    global _yara
+    if _yara is None:
+        import yara as _m
+        _yara = _m
+    return _yara
+
+def _get_wintypes():
+    global _wintypes
+    if _wintypes is None:
+        from ctypes import wintypes as _m
+        _wintypes = _m
+    return _wintypes
+
+def _get_pymem():
+    global _pymem
+    if _pymem is None:
+        import pymem as _m
+        _pymem = _m
+    return _pymem
 
 from memoir.decrypt.common import SessionInfo
 from memoir.decrypt.common import get_version
@@ -66,32 +91,43 @@ class MEMORY_BASIC_INFORMATION(ctypes.Structure):
 PROCESS_VM_READ = 0x0010
 PROCESS_QUERY_INFORMATION = 0x0400
 
-# Load Windows DLLs with proper type annotations
-kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+# ponytail: lazy Windows kernel32 + wintypes — only init on win32 platform.
+# Module-level fallback to None on Linux so the file can be imported.
+_kernel32 = None
+_OpenProcess = None
+_ReadProcessMemory = None
+_CloseHandle = None
+_wt = None
 
-OpenProcess = kernel32.OpenProcess
-OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-OpenProcess.restype = wintypes.HANDLE
-
-ReadProcessMemory = kernel32.ReadProcessMemory
-ReadProcessMemory.argtypes = [wintypes.HANDLE, wintypes.LPCVOID, wintypes.LPVOID, ctypes.c_size_t,
-                              ctypes.POINTER(ctypes.c_size_t)]
-ReadProcessMemory.restype = wintypes.BOOL
-
-CloseHandle = kernel32.CloseHandle
-CloseHandle.argtypes = [wintypes.HANDLE]
-CloseHandle.restype = wintypes.BOOL
+def _ensure_kernel32():
+    global _kernel32, _OpenProcess, _ReadProcessMemory, _CloseHandle, _wt
+    if _kernel32 is not None:
+        return
+    _wt = _get_wintypes()
+    _kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    _OpenProcess = _kernel32.OpenProcess
+    _OpenProcess.argtypes = [_wt.DWORD, _wt.BOOL, _wt.DWORD]
+    _OpenProcess.restype = _wt.HANDLE
+    _ReadProcessMemory = _kernel32.ReadProcessMemory
+    _ReadProcessMemory.argtypes = [_wt.HANDLE, _wt.LPCVOID, _wt.LPVOID, ctypes.c_size_t,
+                                   ctypes.POINTER(ctypes.c_size_t)]
+    _ReadProcessMemory.restype = _wt.BOOL
+    _CloseHandle = _kernel32.CloseHandle
+    _CloseHandle.argtypes = [_wt.HANDLE]
+    _CloseHandle.restype = _wt.BOOL
 
 
 def open_process(pid):
-    return OpenProcess(PROCESS_ALL_ACCESS, False, pid)
+    _ensure_kernel32()
+    return _OpenProcess(PROCESS_ALL_ACCESS, False, pid)
 
 
 # 读取目标进程内存
 def read_process_memory(process_handle, address, size):
+    _ensure_kernel32()
     buffer = ctypes.create_string_buffer(size)
     bytes_read = ctypes.c_size_t(0)
-    success = ReadProcessMemory(
+    success = _ReadProcessMemory(
         process_handle,
         ctypes.c_void_p(address),
         buffer,
@@ -105,10 +141,11 @@ def read_process_memory(process_handle, address, size):
 
 # 获取所有内存区域
 def get_memory_regions(process_handle):
+    _ensure_kernel32()
     regions = []
     mbi = MEMORY_BASIC_INFORMATION()
     address = 0
-    while kernel32.VirtualQueryEx(
+    while _kernel32.VirtualQueryEx(
             process_handle,
             ctypes.c_void_p(address),
             ctypes.byref(mbi),
@@ -180,18 +217,19 @@ def read_bytes(data: bytes, offset, size):
 
 
 def read_bytes_from_pid(pid: int, addr: int, size: int):
-    hprocess = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    _ensure_kernel32()
+    hprocess = _OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
     if not hprocess:
         raise OSError(f"Failed to open process with PID {pid}")
     try:
         buffer = ctypes.create_string_buffer(size)
         bytes_read = ctypes.c_size_t(0)
-        success = ReadProcessMemory(hprocess, addr, buffer, size, ctypes.byref(bytes_read))
+        success = _ReadProcessMemory(hprocess, addr, buffer, size, ctypes.byref(bytes_read))
         if not success:
             return b''
         return bytes(buffer)
     finally:
-        CloseHandle(hprocess)
+        _CloseHandle(hprocess)
 
 
 def read_string_from_pid(pid: int, addr: int, size: int):
@@ -436,7 +474,6 @@ def _verify_key_stdlib(key: bytes, buf: bytes) -> bool:
     """Verify enc_key (already-derived) against a DB page using HMAC-SHA512.
     WCDB caches the derived key in memory — no 256000-iteration PBKDF2 needed.
     Only the 2-iteration mac_key derivation is applied (same as lane2077/wechat-decrypt)."""
-    import hashlib
     salt = buf[:SALT_SIZE]
     mac_salt = bytes(x ^ 0x3a for x in salt)
     mac_key = hashlib.pbkdf2_hmac('sha512', key, mac_salt, 2, dklen=KEY_SIZE)
@@ -576,7 +613,7 @@ def get_key_inner(pid, process_infos):
                 all of them
         }
         '''
-    rules = yara.compile(source=rules_v4_key)
+    rules = _get_yara().compile(source=rules_v4_key)
     pre_addresses = []
     keys = []
     key_set = set()
@@ -682,7 +719,7 @@ def get_wx_dir(process_handle):
             $a
     }
     '''
-    rules = yara.compile(source=rules_v4_dir)
+    rules = _get_yara().compile(source=rules_v4_dir)
     process_infos = get_memory_regions(process_handle)
     data_dir_cnt = {}
     for base_address, region_size in process_infos:
@@ -725,7 +762,7 @@ def get_nickname(pid):
         nick_name = ''
         phone = ''
         account_name = ''
-        rules = yara.compile(source=rules_v4_phone)
+        rules = _get_yara().compile(source=rules_v4_phone)
         for base_address, region_size in process_infos:
             memory = read_process_memory(process_handle, base_address, region_size)
             # 定义目标数据（如内存或文件内容）
@@ -770,7 +807,7 @@ def get_nickname(pid):
             'account_name': account_name
         }
     finally:
-        CloseHandle(process_handle)
+        _CloseHandle(process_handle)
 
 
 def worker(pid, queue):
@@ -797,7 +834,7 @@ def dump_session_info_v4(pid) -> SessionInfo | None:
     session_info.data_dir = get_wx_dir(process_handle)
     if not session_info.data_dir:
         logger.error("[dump_session_info_v4] Could not find WeChat data directory")
-        CloseHandle(process_handle)
+        _CloseHandle(process_handle)
         process.join()
         return session_info
 
@@ -872,7 +909,7 @@ def dump_session_info_v4(pid) -> SessionInfo | None:
         else:
             logger.error("[dump_session_info_v4] No .db file found for YARA verification")
 
-    CloseHandle(process_handle)
+    _CloseHandle(process_handle)
     session_info.uid = '_'.join(session_info.data_dir.split('\\')[-3].split('_')[0:-1])
     session_info.data_dir = '\\'.join(session_info.data_dir.split('\\')[:-2])
     process.join()
@@ -896,7 +933,7 @@ def dump_session_info_v4(pid) -> SessionInfo | None:
 if __name__ == '__main__':
     freeze_support()
     st = time.time()
-    pm = pymem.Pymem("Weixin.exe")
+    pm = _get_pymem().Pymem("Weixin.exe")
     pid = pm.process_id
     w = dump_session_info_v4(pid)
     print(w)

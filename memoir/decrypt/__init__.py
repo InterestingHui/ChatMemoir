@@ -12,11 +12,14 @@ from typing import List
 
 import psutil
 
-from memoir.decrypt.session_v4 import dump_session_info_v4
 from memoir.decrypt.common import SessionInfo
 
 
 def get_info_v4() -> List[SessionInfo]:
+    # ponytail: lazy import — session_v4 pulls in ctypes.WinDLL/kernel32/pymem
+    # which are Windows-only. Only require them when actually scanning a WeChat
+    # process; non-decrypt flows (contact loading / export) don't need this.
+    from memoir.decrypt.session_v4 import dump_session_info_v4
     result_v4 = []
     for process in psutil.process_iter(['name', 'exe', 'pid']):
         name = process.name()
