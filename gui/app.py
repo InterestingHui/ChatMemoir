@@ -84,6 +84,9 @@ class ChatMemoirApp(
         self.running = False
         self._db_version = None  # auto-detected
 
+        # 跨线程 UI 更新通道（Python 3.12 下 root.after 不能从 worker 线程调用）
+        self._start_ui_poller()
+
         configure_styles()
         self._build_menu()
         self._build_screens()

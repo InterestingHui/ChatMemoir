@@ -77,7 +77,7 @@ class ExportMixin:
         time_range = ['2020-01-01 00:00:00', '2099-12-31 23:59:59']
         total = len(self.contacts)
         for i, contact in enumerate(self.contacts):
-            self.root.after(0, lambda i=i, t=total, n=(contact.remark or contact.nickname or contact.uid):
+            self._ui_call(lambda i=i, t=total, n=(contact.remark or contact.nickname or contact.uid):
                             self.set_status(f"批量导出 {i+1}/{t}: {n}"))
             try:
                 scribe = HtmlExporter(
@@ -87,7 +87,7 @@ class ExportMixin:
                     type_=FileType.HTML,
                     message_types={MessageType.Text, MessageType.Image, MessageType.LinkMessage},
                     time_range=time_range,
-                    progress_callback=lambda pct: self.root.after(0, lambda p=pct: self.set_progress(int(p * 100))),
+                    progress_callback=lambda pct: self._ui_call(lambda p=pct: self.set_progress(int(p * 100))),
                 )
                 scribe.start()
             except Exception as e:
@@ -122,7 +122,7 @@ class ExportMixin:
             type_=file_type,
             message_types=None,
             time_range=time_range,
-            progress_callback=lambda pct: self.root.after(0, lambda: self.set_progress(int(pct * 100))),
+            progress_callback=lambda pct: self._ui_call(lambda: self.set_progress(int(pct * 100))),
         )
         scribe.start()
         return output_dir

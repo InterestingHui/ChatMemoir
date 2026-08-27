@@ -8,7 +8,7 @@ class LoggingMixin:
     """Mixin providing thread-safe log and progress methods for ChatMemoirApp."""
 
     def log(self, msg, loading=True):
-        """线程安全日志 — 通过 root.after 调度 GUI 更新"""
+        """线程安全日志 — 通过 _ui_call 调度 GUI 更新"""
         ts = datetime.now().strftime("%H:%M:%S")
         line = f"[{ts}] {msg}\n"
         def _update():
@@ -17,22 +17,19 @@ class LoggingMixin:
                 self._loading_log.insert("end", line)
                 self._loading_log.see("end")
                 self._loading_log.configure(state="disabled")
-        try:
-            self.root.after(0, _update)
-        except Exception:
-            pass
+        self._ui_call(_update)
 
     def set_loading_status(self, text):
         """线程安全 — 更新加载状态文字"""
         def _update():
             self._lbl_loading_status.configure(text=text)
-        try:
-            self.root.after(0, _update)
-        except Exception:
-            pass
+        self._ui_call(_update)
 
     def set_status(self, msg):
-        self._statusbar.configure(text=msg)
+        """线程安全 — 更新状态栏（转写/导出等 worker 线程也会调用）"""
+        def _update():
+            self._statusbar.configure(text=msg)
+        self._ui_call(_update)
 
     def set_loading_progress(self, current, total, filename=""):
         """线程安全 — 更新解密加载进度"""
@@ -56,10 +53,7 @@ class LoggingMixin:
             self._loading_progress.configure(mode="determinate")
             self._loading_progress["value"] = pct
             self._lbl_loading_pct.configure(text=f"{current}/{total} ({pct}%)  {short_name}")
-        try:
-            self.root.after(0, _update)
-        except Exception:
-            pass
+        self._ui_call(_update)
 
     def set_progress(self, pct):
         """设置导出进度（0-100）"""

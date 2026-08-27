@@ -118,6 +118,6 @@ class ContactMixin:
                 except Exception:
                     pass
 
-            self.root.after(0, self._populate_contacts)
+            self._ui_call(self._populate_contacts)
         except Exception:
             pass

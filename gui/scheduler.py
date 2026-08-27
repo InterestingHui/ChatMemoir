@@ -69,7 +69,7 @@ class SchedulerMixin:
     def _sched_log(self, msg):
         self.log(f"[定时] {msg}")
         try:
-            self.root.after(0, lambda m=msg: self.set_status(m))
+            self._ui_call(lambda m=msg: self.set_status(m))
         except Exception:
             pass
 
@@ -81,7 +81,7 @@ class SchedulerMixin:
     def _sched_save_tasks(self):
         _save_config(self._config)
         try:
-            self.root.after(0, self._refresh_task_tree)
+            self._ui_call(self._refresh_task_tree)
         except Exception:
             pass
 
@@ -128,7 +128,7 @@ class SchedulerMixin:
 
         # 刷新联系人列表（消息数变了）
         try:
-            self.root.after(0, lambda: (self._populate_contacts(), self._compute_stats()))
+            self._ui_call(lambda: (self._populate_contacts(), self._compute_stats()))
         except Exception:
             pass
 
