@@ -82,6 +82,7 @@ None yet.
 | 260629-klj | dump_session_info_v4 集成测试（7 分支） | 2026-06-29 | 6d682da | [260629-klj-dump-session-info-v4-7-open-process-none](./quick/260629-klj-dump-session-info-v4-7-open-process-none/) |
 | 260629-urj | GUI 进度条修复端到端集成测试 | 2026-06-29 | 10d1722 | [260629-urj-gui-testautodecryptprogressflow-mock-aut](./quick/260629-urj-gui-testautodecryptprogressflow-mock-aut/) |
 | 260629-v3a | v4 流水线合成 DB 集成测试（联系人→消息→导出） | 2026-06-29 | ffc4226 | [260629-v3a-v4-db-contact-db-message-0-db-info-json-](./quick/260629-v3a-v4-db-contact-db-message-0-db-info-json-/) |
+| 260826-5h3 | GUI 加载当前登录微信账号（WSL 回退路径） | 2026-08-26 | 23ff2ce | [260826-5h3-fix-gui-stale-account-loading](./quick/260826-5h3-fix-gui-stale-account-loading/) |
 
 ## Session Continuity
 
