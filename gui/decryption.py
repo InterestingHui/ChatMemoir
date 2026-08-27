@@ -671,9 +671,13 @@ class DecryptionMixin:
 
         # 填充联系人列表
         self._populate_contacts()
-        self._compute_stats()
         self._show_screen("main")
         self._update_adv_menu()
+        # ponytail: _compute_stats 全量扫 message_*.db（实测 ~8s），主线程跑会
+        # 卡死整个 UI（WSLg 直接判未响应）。它结尾本来就走 _ui_call 回主线程
+        # 刷新列表，天生就是为后台线程设计的。
+        import threading as _th
+        _th.Thread(target=self._compute_stats, daemon=True).start()
 
     def _on_decrypt_error(self, e):
         """解密失败后显示错误"""
