@@ -407,6 +407,49 @@ class DecryptionMixin:
         self.log(f"加载完成: {len(self.contacts)} 个联系人")
         return db_dir
 
+    def _detect_live_wechat_uid(self):
+        """Detect the currently-logged-in WeChat account from Windows-side
+        xwechat_files db mtimes (WSL /mnt/c path only). Returns the bare uid
+        (dir-suffix stripped) or None when detection is unavailable.
+
+        ponytail: relative-newest heuristic — stat a few hot db files per
+        wxid_* account dir and pick the most recently written. A full os.walk
+        over /mnt/c (9p) is far too slow. If two accounts are logged in at
+        the same time, the newest write wins; upgrade path would be parsing
+        session.db content for the active session."""
+        import glob as _glob
+        import time as _time
+        # Hot files WeChat touches constantly while logged in (relative to
+        # the wxid_* account root).
+        _HOT = ('db_storage/session/session.db',
+                'db_storage/message/message_fts.db',
+                'db_storage/message/message_0.db',
+                'db_storage/contact/contact.db')
+        bases = _glob.glob('/mnt/c/Users/*/xwechat_files')
+        bases += _glob.glob('/mnt/c/Users/*/Documents/xwechat_files')
+        best_uid, best_mtime = None, 0.0
+        for base in bases:
+            for acct in _glob.glob(os.path.join(base, 'wxid_*')):
+                name = os.path.basename(acct)
+                if not name.startswith('wxid_'):
+                    continue
+                newest = 0.0
+                for rel in _HOT:
+                    try:
+                        m = os.path.getmtime(os.path.join(acct, rel))
+                    except OSError:
+                        continue
+                    if m > newest:
+                        newest = m
+                if newest > best_mtime:
+                    best_mtime = newest
+                    # wxid_xxx_452d -> wxid_xxx (same normalization as
+                    # _fast_find_data_dir on the Windows path)
+                    best_uid = '_'.join(name.split('_')[:-1])
+        if best_uid is None or _time.time() - best_mtime > 86400:
+            return None
+        return best_uid
+
     def _try_load_existing_db_dir(self):
         """Find an already-decrypted db_storage directory (non-Windows path)."""
         import os as _os
@@ -423,6 +466,21 @@ class DecryptionMixin:
                 db_storage = _os.path.join(full, 'db_storage')
                 if _os.path.isdir(db_storage):
                     candidates.append(db_storage)
+        # 3. prefer the currently-logged-in account over stale last_db_dir —
+        # blindly returning last_db_dir shows the previous account's data
+        # after the user switches WeChat accounts.
+        live_uid = self._detect_live_wechat_uid()
+        if live_uid:
+            live = [c for c in candidates if f'/{live_uid}/' in c.replace('\\', '/')]
+            if live:
+                self.log(f"  当前登录微信账号: {live_uid}，加载其解密数据")
+                candidates = live + [c for c in candidates if c not in live]
+            elif candidates:
+                raise RuntimeError(
+                    f"当前登录的微信账号是 {live_uid}，但本地没有它的解密数据。\n"
+                    f"本地已有: {', '.join(candidates)}\n"
+                    f"请先在 Windows 上解密该账号后再回来查看。"
+                )
         for db_dir in candidates:
             if _os.path.isdir(db_dir) and _os.path.exists(_os.path.join(db_dir, 'contact', 'contact.db')):
                 self._db_version = 4
@@ -598,13 +656,16 @@ class DecryptionMixin:
         import json as _json
         self._loading_progress.stop()
         self._btn_cancel.pack_forget()
-        # 更新账号信息
+        # 更新账号信息（info.json 在 db_storage/ 下或其父目录，键名是 username）
         info_path = os.path.join(db_dir, "info.json")
+        if not os.path.exists(info_path):
+            info_path = os.path.join(os.path.dirname(db_dir), "info.json")
         if os.path.exists(info_path):
             try:
                 with open(info_path, 'r', encoding='utf-8') as f:
                     info = _json.load(f)
-                self._lbl_account.configure(text=f"账号: {info.get('nickname', info.get('uid', ''))}")
+                name = info.get('nickname') or info.get('username') or os.path.basename(os.path.dirname(db_dir.rstrip('/\\')))
+                self._lbl_account.configure(text=f"账号: {name}")
             except Exception:
                 pass
 
