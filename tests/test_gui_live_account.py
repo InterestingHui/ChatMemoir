@@ -29,9 +29,11 @@ class _Stub(DecryptionMixin):
 
 def test_detect_live_uid():
     stub = _Stub('')
-    uid = stub._detect_live_wechat_uid()
-    print(f"detect_live_wechat_uid -> {uid!r}")
+    uid, mtime = stub._detect_live_wechat_uid()
+    print(f"detect_live_wechat_uid -> ({uid!r}, {mtime})")
     assert uid in (None, 'wxid_ka89oj7i1mz622', 'wxid_ttlo1sb5pyh811'), uid
+    if uid is not None:
+        assert mtime > 0, "有 uid 时必须带热点 mtime"
     return uid
 
 
@@ -51,7 +53,7 @@ def test_fallback_prefers_live_account(live_uid):
 def test_missing_live_data_raises():
     # live uid 有解密数据时不抛；此处验证 raise 分支存在即可（构造不匹配 uid）
     stub = _Stub('')
-    stub._detect_live_wechat_uid = lambda: 'wxid_nonexistent'
+    stub._detect_live_wechat_uid = lambda: ('wxid_nonexistent', 0.0)
     try:
         stub._try_load_existing_db_dir()
     except RuntimeError as e:

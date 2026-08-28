@@ -418,7 +418,9 @@ class DecryptionMixin:
         wxid_* account dir and pick the most recently written. A full os.walk
         over /mnt/c (9p) is far too slow. If two accounts are logged in at
         the same time, the newest write wins; upgrade path would be parsing
-        session.db content for the active session."""
+        session.db content for the active session.
+
+        Returns (uid, newest_hot_mtime) or (None, 0.0)."""
         import glob as _glob
         import time as _time
         # Hot files WeChat touches constantly while logged in (relative to
@@ -449,8 +451,8 @@ class DecryptionMixin:
                     # _fast_find_data_dir on the Windows path)
                     best_uid = '_'.join(name.split('_')[:-1])
         if best_uid is None or _time.time() - best_mtime > 86400:
-            return None
-        return best_uid
+            return None, 0.0
+        return best_uid, best_mtime
 
     def _try_native_decrypt_refresh(self):
         """WSL/Linux 下触发 Windows 侧管理员任务重新解密当前登录账号。
@@ -467,13 +469,29 @@ class DecryptionMixin:
         if not os.path.exists(schtasks):
             self.log("  未找到 schtasks.exe（非 WSL 环境？），跳过刷新")
             return None
-        live_uid = self._detect_live_wechat_uid()
+        live_uid, live_mtime = self._detect_live_wechat_uid()
         if not live_uid:
             self.log("  未检测到正在登录的微信账号（24h 内无数据写入），跳过刷新")
             return None
 
         proj = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         log_path = os.path.join(proj, 'wxdecrypt.log')
+        fresh_dir = os.path.join(proj, live_uid, 'db_storage')
+        fresh_info = os.path.join(fresh_dir, 'info.json')
+
+        # ponytail: 新鲜度门 — 快照落后实时数据 <30 分钟就直接用，不再触发
+        # 一次可能数小时的内存扫 key + PBKDF2 全量验证。30min 是体验粒度
+        # 的标定旋钮：要更实时就调小，解密磨得久就调大。
+        _FRESH_WINDOW = 30 * 60
+        if os.path.exists(fresh_info) and os.path.exists(os.path.join(fresh_dir, 'contact', 'contact.db')):
+            snap_t = os.path.getmtime(fresh_info)
+            if snap_t >= live_mtime - 60:
+                self.log(f"  快照已是最新（{int(_time.time() - snap_t)} 秒前解密），直接加载")
+                return fresh_dir
+            if live_mtime - snap_t < _FRESH_WINDOW:
+                self.log(f"  快照落后实时数据 {int(live_mtime - snap_t)} 秒（<30 分钟），直接加载")
+                return fresh_dir
+
         offset = os.path.getsize(log_path) if os.path.exists(log_path) else 0
         # 记录触发时刻 — 完成后要求 info.json 比它新，防止把 6 月的旧产物当新结果
         triggered_at = _time.time()
@@ -488,8 +506,13 @@ class DecryptionMixin:
             self.log(f"  schtasks 启动异常: {e!r}")
             return None
         if r.returncode != 0:
-            self.log(f"  计划任务启动失败 (rc={r.returncode})，无法刷新")
-            return None
+            # 计划任务已在跑（上一次触发的解密还没结束）→ 改为等它跑完
+            self.log("  计划任务启动返回非 0，检查是否有解密正在进行...")
+            if not (os.path.exists(log_path)
+                    and _time.time() - os.path.getmtime(log_path) < 90):
+                self.log(f"  无进行中的解密（rc={r.returncode}），无法刷新")
+                return None
+            self.log("  已有解密在跑，等待其完成...")
 
         self.set_loading_status(f"正在重新解密当前账号 {live_uid}（Windows 管理员任务）...")
         self.log("  已触发 Windows 侧原生解密，增量模式，可能需要几分钟...")
@@ -519,8 +542,8 @@ class DecryptionMixin:
                     if rc != '0':
                         self.log(f"  Windows 侧解密失败 (exit {rc})，回退本地旧快照")
                         return None
-                    fresh = os.path.join(proj, live_uid, 'db_storage')
-                    info_json = os.path.join(fresh, 'info.json')
+                    fresh = fresh_dir
+                    info_json = fresh_info
                     if (os.path.exists(os.path.join(fresh, 'contact', 'contact.db'))
                             and os.path.exists(info_json)
                             and os.path.getmtime(info_json) > triggered_at):
@@ -550,7 +573,7 @@ class DecryptionMixin:
         # 3. prefer the currently-logged-in account over stale last_db_dir —
         # blindly returning last_db_dir shows the previous account's data
         # after the user switches WeChat accounts.
-        live_uid = self._detect_live_wechat_uid()
+        live_uid, _live_mtime = self._detect_live_wechat_uid()
         if live_uid:
             live = [c for c in candidates if f'/{live_uid}/' in c.replace('\\', '/')]
             if live:
