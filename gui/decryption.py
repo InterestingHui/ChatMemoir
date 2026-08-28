@@ -73,9 +73,11 @@ class DecryptionMixin:
             if _sys.platform == 'win32':
                 raise  # on real Windows, surface the real error
             self.log(f"实时解密不可用 ({e!r})，尝试刷新当前账号的解密数据...")
-            # 先触发 Windows 侧管理员任务重新解密当前登录账号（增量），
-            # 成功则用新鲜数据；失败再回退本地旧快照。
-            db_dir = self._try_native_decrypt_refresh() or self._try_load_existing_db_dir()
+            # 三级回退：① 历史 passphrase 本地直解（快，密钥未轮换时）→
+            # ② Windows 管理员任务内存扫 key 重解（慢但万能）→ ③ 本地旧快照。
+            db_dir = (self._try_passphrase_decrypt_refresh()
+                      or self._try_native_decrypt_refresh()
+                      or self._try_load_existing_db_dir())
             if not db_dir:
                 raise RuntimeError(
                     f"解密失败且未找到已解密数据库。\n"
@@ -454,6 +456,166 @@ class DecryptionMixin:
             return None, 0.0
         return best_uid, best_mtime
 
+    def _fresh_snapshot_dir(self, live_uid, live_mtime):
+        """新鲜度门：快照落后实时数据 <30 分钟时直接返回其 db_storage 目录。
+
+        ponytail: 30min 窗口是体验粒度标定旋钮 — 要更实时就调小；每次点击都
+        触发长解密难以接受就调大。快照位置查两处：1-decrypt 的 <proj>/<uid>/
+        和本地 passphrase 直解的 decrypted/<uid>/（两个刷新路径各自的输出约定）。
+        """
+        proj = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for base in (os.path.join(proj, live_uid), os.path.join(proj, 'decrypted', live_uid)):
+            db_storage = os.path.join(base, 'db_storage')
+            info_json = os.path.join(base, 'info.json')
+            if not os.path.exists(os.path.join(db_storage, 'contact', 'contact.db')):
+                continue
+            if not os.path.exists(info_json):
+                continue
+            if os.path.getmtime(info_json) >= live_mtime - 30 * 60:
+                return db_storage
+        return None
+
+    def _try_passphrase_decrypt_refresh(self):
+        """WSL 本地直解：历史 passphrase 对当前 /mnt/c 加密库仍有效时，
+        直接在 Linux 侧增量解密当前登录账号的数据（纯 pycryptodome，不需要
+        Windows 内存扫描）。passphrase 失效（重登/换号轮换）则返回 None，
+        调用方继续走管理员任务路径。
+
+        实测：6 月 passphrase 至今有效（密钥不轮换是常态），29 个库 2.9G，
+        PBKDF2 ~15s + AES 增量解密分钟级 — 比 YARA 内存扫描（小时级）快两个量级。
+        """
+        import glob as _glob
+        import hashlib as _hl
+        import json as _json
+        from memoir.decrypt import decrypt_v4
+
+        live_uid, live_mtime = self._detect_live_wechat_uid()
+        if not live_uid:
+            return None
+        fresh = self._fresh_snapshot_dir(live_uid, live_mtime)
+        if fresh:
+            self.log(f"  快照已是最新，直接加载: {fresh}")
+            return fresh
+
+        # 1. 定位 /mnt/c 上的账号目录（wxid_xxx_YYYY 后缀形式）
+        acct_dir = None
+        for base in _glob.glob('/mnt/c/Users/*/xwechat_files') + _glob.glob('/mnt/c/Users/*/Documents/xwechat_files'):
+            for d in _glob.glob(os.path.join(base, f'{live_uid}_*')):
+                if '_'.join(os.path.basename(d).split('_')[:-1]) == live_uid:
+                    acct_dir = d
+                    break
+            if acct_dir:
+                break
+        if not acct_dir:
+            self.log(f"  未找到账号 {live_uid} 的数据目录，跳过本地直解")
+            return None
+
+        # 2. 从历史 info.json 找 passphrase（新 layout 优先，旧 decrypted/ 兜底）
+        proj = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        passphrase = None
+        for info_path in (os.path.join(proj, live_uid, 'info.json'),
+                          os.path.join(proj, live_uid, 'db_storage', 'info.json'),
+                          os.path.join(proj, 'decrypted', live_uid, 'info.json')):
+            if not os.path.exists(info_path):
+                continue
+            try:
+                info = _json.load(open(info_path, 'r', encoding='utf-8'))
+                pp = info.get('passphrase', '')
+                if info.get('username') == live_uid and len(pp) == 64:
+                    passphrase = pp
+                    self.log(f"  使用历史 passphrase ({os.path.basename(os.path.dirname(info_path))}/)")
+                    break
+            except Exception:
+                continue
+        if not passphrase:
+            self.log("  无历史 passphrase，跳过本地直解")
+            return None
+
+        # 3. 快速验证 passphrase 对当前加密库仍有效（1 次 PBKDF2，~0.5s）
+        verify_src = os.path.join(acct_dir, 'db_storage', 'session', 'session.db')
+        if not os.path.exists(verify_src):
+            for root, _dirs, files in os.walk(os.path.join(acct_dir, 'db_storage')):
+                if any(f.endswith('.db') for f in files):
+                    verify_src = os.path.join(root, next(f for f in files if f.endswith('.db')))
+                    break
+        KEY_SIZE, SALT_SIZE, PAGE_SIZE = 32, 16, 4096
+        IV_SIZE, HMAC_SIZE, AES_BLOCK = 16, 64, 16
+        import hmac as _hmac
+        import struct as _struct
+        buf = open(verify_src, 'rb').read(PAGE_SIZE)
+        salt = buf[:SALT_SIZE]
+        pp_bytes = bytes.fromhex(passphrase)
+        dk = _hl.pbkdf2_hmac('sha512', pp_bytes, salt, 256000, dklen=KEY_SIZE)
+        mac_salt = bytes(x ^ 0x3a for x in salt)
+        mac_key = _hl.pbkdf2_hmac('sha512', dk, mac_salt, 2, dklen=KEY_SIZE)
+        reserve = ((IV_SIZE + HMAC_SIZE + AES_BLOCK - 1) // AES_BLOCK) * AES_BLOCK
+        mac = _hmac.new(mac_key, buf[SALT_SIZE:PAGE_SIZE - reserve + IV_SIZE], _hl.sha512)
+        mac.update(_struct.pack('<I', 1))
+        off = PAGE_SIZE - reserve + IV_SIZE
+        if mac.digest() != buf[off:off + HMAC_SIZE]:
+            self.log("  历史 passphrase 已失效（密钥轮换），转管理员任务路径")
+            return None
+        self.log("  历史 passphrase 对当前数据验证通过，本地增量解密...")
+
+        # 4. 派生每个库的 key（salt = 文件前 16 字节），带进度。
+        # ponytail: 只 walk db_storage/ — .db 全在这里；walk 整个账号目录会
+        # 连带 attach/ 的海量附件元数据，9p 下列举一次要几分钟。
+        db_storage_src = os.path.join(acct_dir, 'db_storage')
+        db_candidates = []
+        for root, _dirs, files in os.walk(db_storage_src):
+            for fn in files:
+                fp = os.path.join(root, fn)
+                try:
+                    if not fn.endswith('.db') or os.path.getsize(fp) < PAGE_SIZE:
+                        continue
+                except OSError:
+                    continue
+                db_candidates.append((root, fn))
+        total = len(db_candidates)
+        self.set_loading_status(f"正在派生数据库密钥（{total} 个，每个约0.5s）...")
+        self.set_loading_progress(0, max(total, 1), "")
+        key_map = {}
+        for i, (root, fn) in enumerate(db_candidates):
+            with open(os.path.join(root, fn), 'rb') as fh:
+                s = fh.read(SALT_SIZE)
+            key_map[os.path.join(os.path.relpath(root, db_storage_src), fn)] = \
+                _hl.pbkdf2_hmac('sha512', pp_bytes, s, 256000, dklen=KEY_SIZE).hex()
+            self.set_loading_progress(i + 1, total, fn)
+
+        # 5. 增量解密到 decrypted/<uid>/db_storage/（沿用既有快照位置，
+        # skip_existing 复用未变文件；src/db 基准一致 → key_map 相对路径吻合）
+        dest_dir = os.path.join(proj, 'decrypted', live_uid, 'db_storage')
+        self.set_loading_status(f"正在解密 {live_uid} 的当前数据...")
+        self.set_loading_progress(0, 1, "")
+        total_done, failed = decrypt_v4.decrypt_db_files(
+            passphrase, src_dir=db_storage_src, dest_dir=dest_dir,
+            key_map=key_map, skip_existing=True,
+            progress_callback=self.set_loading_progress)
+        if failed:
+            self.log(f"  警告: {failed}/{total_done} 个数据库解密失败")
+        db_storage = dest_dir
+        if not os.path.exists(os.path.join(db_storage, 'contact', 'contact.db')):
+            self.log("  本地直解未产出 contact.db，转管理员任务路径")
+            return None
+
+        # 6. 刷新 info.json（更新 mtime 供新鲜度门短路；wx_dir 指向当前账号目录）
+        info = {}
+        parent_info = os.path.join(proj, 'decrypted', live_uid, 'info.json')
+        if os.path.exists(parent_info):
+            try:
+                info = _json.load(open(parent_info, 'r', encoding='utf-8'))
+            except Exception:
+                info = {}
+        info.setdefault('username', live_uid)
+        info['wx_dir'] = acct_dir.replace('/mnt/c/', 'C:\\').replace('/', '\\')
+        info['passphrase'] = passphrase
+        os.makedirs(db_storage, exist_ok=True)
+        for p in (parent_info, os.path.join(db_storage, 'info.json')):
+            with open(p, 'w', encoding='utf-8') as f:
+                _json.dump(info, f, ensure_ascii=False, indent=4)
+        self.log(f"  本地直解完成: {db_storage}")
+        return db_storage
+
     def _try_native_decrypt_refresh(self):
         """WSL/Linux 下触发 Windows 侧管理员任务重新解密当前登录账号。
 
@@ -473,24 +635,15 @@ class DecryptionMixin:
         if not live_uid:
             self.log("  未检测到正在登录的微信账号（24h 内无数据写入），跳过刷新")
             return None
+        fresh = self._fresh_snapshot_dir(live_uid, live_mtime)
+        if fresh:
+            self.log(f"  快照已是最新，直接加载: {fresh}")
+            return fresh
 
         proj = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         log_path = os.path.join(proj, 'wxdecrypt.log')
         fresh_dir = os.path.join(proj, live_uid, 'db_storage')
         fresh_info = os.path.join(fresh_dir, 'info.json')
-
-        # ponytail: 新鲜度门 — 快照落后实时数据 <30 分钟就直接用，不再触发
-        # 一次可能数小时的内存扫 key + PBKDF2 全量验证。30min 是体验粒度
-        # 的标定旋钮：要更实时就调小，解密磨得久就调大。
-        _FRESH_WINDOW = 30 * 60
-        if os.path.exists(fresh_info) and os.path.exists(os.path.join(fresh_dir, 'contact', 'contact.db')):
-            snap_t = os.path.getmtime(fresh_info)
-            if snap_t >= live_mtime - 60:
-                self.log(f"  快照已是最新（{int(_time.time() - snap_t)} 秒前解密），直接加载")
-                return fresh_dir
-            if live_mtime - snap_t < _FRESH_WINDOW:
-                self.log(f"  快照落后实时数据 {int(live_mtime - snap_t)} 秒（<30 分钟），直接加载")
-                return fresh_dir
 
         offset = os.path.getsize(log_path) if os.path.exists(log_path) else 0
         # 记录触发时刻 — 完成后要求 info.json 比它新，防止把 6 月的旧产物当新结果

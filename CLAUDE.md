@@ -13,13 +13,17 @@
 - **权限：** 需要管理员权限打开微信进程（PROCESS_ALL_ACCESS）
 - **前提条件：** 微信必须在运行状态、已扫码登录
 - **技术栈：** Python + ctypes + YARA + pymem + pefile（解析 Weixin.dll PE 头）
-- **测试环境：** 微信 4.1.11.24（用户实际环境；账号 `wxid_ka89oj7i1mz622_452d`）
+- **测试环境：** 微信 4.1.13.12（2026-08-28 实测；XOR 路径仍有效、internal_db_key 可提取；regex hex-scan 在此版本找不到 key，会落到 YARA 慢路径）。此前 4.1.11.24，账号 `wxid_ka89oj7i1mz622_452d` / `wxid_ttlo1sb5pyh811_760e`
 - **兼容性：** 4.1.10+ XOR 路径自动启用；4.0/4.1.x 走老的 raw/passphrase 路径
 - **打包：** PyInstaller spec (`ChatMemoir.spec`) → `dist/ChatMemoir/ChatMemoir.exe`，通过 `.wxbuild-trigger` sentinel + `ChatMemoirAdmin` 计划任务触发（无 UAC、admin 权限）
 
 ### Key Discovery: 4.1.10+ XOR Obfuscation
 
 WeChat 4.1.10+ 把内存中的 raw passphrase 用一个 32-byte `internal_db_key` 做 XOR。`internal_db_key` 硬编码在 `Weixin.dll` 的代码段（4 个连续的 `mov rdx, imm64` + `test rax, rax` 指令模式）。`memoir/decrypt/session_v4.py:extract_internal_db_keys_from_dll()` 用 pefile + 正则扫描 DLL 提取候选，验证时对每个内存候选 XOR 每个 DLL key + PBKDF2 验证。思路来自 [LifeArchiveProject/WeChatDataAnalysis](https://github.com/LifeArchiveProject/WeChatDataAnalysis)。
+
+### Key Discovery: passphrase 不轮换 → WSL 本地直解
+
+WCDB passphrase 只在重登/换号时轮换，平常升级微信、日常使用都不变。历史解密产物 `info.json` 里存着 passphrase（明文 hex），对当前 `/mnt/c` 加密库做一次 PBKDF2 验证即可确认仍有效 —— 有效则 **Linux 侧纯 pycryptodome 增量解密当前数据**（29 库 2.9G：PBKDF2 ~15s + AES 分钟级），无需 Windows 内存扫描。`gui/decryption.py` 的 WSL 回退按三级尝试：① `_try_passphrase_decrypt_refresh()` 本地直解 → ② `_try_native_decrypt_refresh()` 管理员任务内存扫 key（sentinel + ChatMemoirAdmin，YARA 17 万候选小时级，仅密钥轮换后需要）→ ③ `_try_load_existing_db_dir()` 旧快照。快照落后实时数据 <30 分钟时 `_fresh_snapshot_dir()` 直接短路加载。
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:codebase/STACK.md -->
