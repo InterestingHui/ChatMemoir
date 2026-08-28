@@ -50,6 +50,8 @@ hiddenimports += ['pysilk']
 hiddenimports += collect_submodules('Crypto')
 hiddenimports += collect_submodules('Crypto.Protocol')
 hiddenimports += collect_submodules('Crypto.Hash')
+# pypinyin — 词库模块按需延迟导入，全部收进包（gui 联系人拼音检索用）
+hiddenimports += collect_submodules('pypinyin')
 
 # Data files that must be bundled next to the exe
 datas = list(_extra_datas)

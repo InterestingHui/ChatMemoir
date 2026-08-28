@@ -5,6 +5,26 @@ import hashlib
 import os
 import sqlite3
 
+# 拼音检索：WSLg 下 Linux Tk 窗口收不到 Windows 搜狗输入法注入（OS 层限制），
+# 用户只能键入英文 — 全拼/首字母匹配中文昵称是应用层的解法。
+try:
+    from pypinyin import lazy_pinyin
+except ImportError:  # 未安装时退回纯文本/uid 匹配
+    lazy_pinyin = None
+
+
+def _pinyin_haystacks(name):
+    """返回 (全拼, 首字母) 小写检索串，如 '张三' -> ('zhangsan', 'zs')。
+    非汉字段原样透传（ABC张三 -> ('ABCzhangsan', 'ABCzs')）。
+    汉字经 lazy_pinyin 输出必为纯小写字母段 — 以此区分拼音段（取首字母）
+    与原样透传段（整体保留）。"""
+    if not lazy_pinyin or not name:
+        return '', ''
+    parts = lazy_pinyin(name)
+    full = ''.join(parts)
+    initials = ''.join(seg if not seg.islower() else seg[:1] for seg in parts)
+    return full.lower(), initials.lower()
+
 
 class ContactMixin:
     """Mixin providing contact list and detail methods for ChatMemoirApp."""
@@ -19,22 +39,24 @@ class ContactMixin:
             msg_count = self.contact_msg_counts.get(c.uid, 0)
             count_str = f"{msg_count}条" if msg_count > 0 else ""
             item_id = self._contact_tree.insert("", "end", values=(name, count_str))
-            self._all_contact_items.append((item_id, c.uid, name))
+            full_py, initials = _pinyin_haystacks(name)
+            self._all_contact_items.append((item_id, c.uid, name, full_py, initials))
         self._lbl_contact_count.configure(text=f"共 {len(self.contacts)} 个联系人")
         self.set_status(f"已加载 {len(self.contacts)} 个联系人")
 
     def _filter_contacts(self):
         keyword = self._search_var.get().strip().lower()
         self._contact_tree.delete(*self._contact_tree.get_children())
-        for item_id, uid, name in self._all_contact_items:
-            if not keyword or keyword in name.lower() or keyword in uid.lower():
+        for item_id, uid, name, full_py, initials in self._all_contact_items:
+            if (not keyword or keyword in name.lower() or keyword in uid.lower()
+                    or keyword in full_py or keyword in initials):
                 msg_count = self.contact_msg_counts.get(uid, 0)
                 count_str = f"{msg_count}条" if msg_count > 0 else ""
                 new_id = self._contact_tree.insert("", "end", values=(name, count_str))
                 # Update the item reference
-                for i, (_, u, n) in enumerate(self._all_contact_items):
-                    if u == uid:
-                        self._all_contact_items[i] = (new_id, uid, name)
+                for i, (old_id, u, n, fp, ini) in enumerate(self._all_contact_items):
+                    if old_id == item_id:
+                        self._all_contact_items[i] = (new_id, uid, name, full_py, initials)
                         break
 
     # ── 联系人详情 ────────────────────────────────────────
@@ -45,7 +67,7 @@ class ContactMixin:
             return
         # 找到对应的 uid
         uid = None
-        for item_id, u, name in self._all_contact_items:
+        for item_id, u, name, _fp, _ini in self._all_contact_items:
             if item_id == sel[0]:
                 uid = u
                 break
@@ -121,3 +143,13 @@ class ContactMixin:
             self._ui_call(self._populate_contacts)
         except Exception:
             pass
+
+
+if __name__ == "__main__":
+    # 自检：拼音检索串生成
+    assert _pinyin_haystacks("张三") == ("zhangsan", "zs"), _pinyin_haystacks("张三")
+    assert _pinyin_haystacks("退堂鼓手") == ("tuitanggushou", "ttgs")
+    assert _pinyin_haystacks("12355青年之声") == ("12355qingnianzhisheng", "12355qnzs")
+    assert _pinyin_haystacks("wxid_abc123")[0] == "wxid_abc123"  # uid 形态全拼完整
+    assert _pinyin_haystacks("") == ("", "")
+    print("contacts pinyin self-check OK (pypinyin:", bool(lazy_pinyin), ")")
