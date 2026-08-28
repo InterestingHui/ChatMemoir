@@ -200,11 +200,8 @@ class SchedulerMixin:
     # ── HTML 报告 ─────────────────────────────────────────
 
     def _sched_write_report(self, name, t_start, t_end, messages, stats, ai):
-        out_root = self._output_dir.get() if hasattr(self, "_output_dir") else None
-        if not out_root:
-            out_root = os.path.join(self._script_dir, "data")
-        report_dir = os.path.join(out_root if os.path.isabs(out_root)
-                                  else os.path.join(self._script_dir, out_root), REPORT_DIR)
+        # 输出按当前账号分区（utils._scoped_output_dir）
+        report_dir = os.path.join(self._scoped_output_dir(), REPORT_DIR)
         os.makedirs(report_dir, exist_ok=True)
         safe_name = "".join(c for c in name if c not in r'\/:*?"<>|')[:40] or "chat"
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -379,9 +376,7 @@ footer {{ text-align:center; color:var(--muted); font-size:12px; padding:8px; }}
         threading.Thread(target=self._run_sched_task_safe, args=(task,), daemon=True).start()
 
     def _on_open_report_dir(self):
-        out_root = self._output_dir.get() if hasattr(self, "_output_dir") else None
-        base = out_root or os.path.join(self._script_dir, "data")
-        report_dir = os.path.join(base if os.path.isabs(base) else os.path.join(self._script_dir, base), REPORT_DIR)
+        report_dir = os.path.join(self._scoped_output_dir(), REPORT_DIR)
         os.makedirs(report_dir, exist_ok=True)
         try:
             os.startfile(report_dir)

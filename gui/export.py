@@ -70,9 +70,8 @@ class ExportMixin:
         from scribe import HtmlExporter
         from memoir import MessageType
 
-        output_dir = self._output_dir.get()
-        if not os.path.isabs(output_dir):
-            output_dir = os.path.join(self._script_dir, output_dir)
+        # 按当前账号分区（utils._scoped_output_dir），避免换账号后导出混目录
+        output_dir = self._scoped_output_dir()
         os.makedirs(output_dir, exist_ok=True)
         time_range = ['2020-01-01 00:00:00', '2099-12-31 23:59:59']
         total = len(self.contacts)
@@ -111,9 +110,8 @@ class ExportMixin:
 
         file_type, scribe_cls = fmt_map[fmt]
         contact = self.selected_contact
-        output_dir = self._output_dir.get()
-        if not os.path.isabs(output_dir):
-            output_dir = os.path.join(self._script_dir, output_dir)
+        # 按当前账号分区（utils._scoped_output_dir），避免换账号后导出混目录
+        output_dir = self._scoped_output_dir()
 
         scribe = scribe_cls(
             self.database,
