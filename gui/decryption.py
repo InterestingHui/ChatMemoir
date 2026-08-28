@@ -928,8 +928,18 @@ class DecryptionMixin:
             try:
                 with open(info_path, 'r', encoding='utf-8') as f:
                     info = _json.load(f)
-                name = info.get('nickname') or info.get('username') or os.path.basename(os.path.dirname(db_dir.rstrip('/\\')))
-                self._lbl_account.configure(text=f"账号: {name}")
+                # ponytail: 账号身份用「昵称 + 短 uid」展示 — 裸 wxid 没人对得上，
+                # 换账号后用户无法判断屏上是谁的数据。昵称优先从已加载联系人表里
+                # 取本人那一行（info.json 的 nickname 常为空）。
+                from memoir import Me
+                me_uid = Me().uid or info.get('username', '')
+                me_c = next((c for c in self.contacts if c.uid == me_uid), None)
+                display = ((me_c and (me_c.remark or me_c.nickname)) or info.get('nickname')
+                           or info.get('username')
+                           or os.path.basename(os.path.dirname(db_dir.rstrip('/\\'))))
+                short_uid = me_uid.replace('wxid_', '')[:12]
+                self._lbl_account.configure(
+                    text=f"账号: {display}（{short_uid}）" if short_uid else f"账号: {display}")
             except Exception:
                 pass
 
