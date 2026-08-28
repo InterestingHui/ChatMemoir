@@ -72,8 +72,10 @@ class DecryptionMixin:
         except Exception as e:
             if _sys.platform == 'win32':
                 raise  # on real Windows, surface the real error
-            self.log(f"实时解密不可用 ({e!r})，尝试加载已解密数据库...")
-            db_dir = self._try_load_existing_db_dir()
+            self.log(f"实时解密不可用 ({e!r})，尝试刷新当前账号的解密数据...")
+            # 先触发 Windows 侧管理员任务重新解密当前登录账号（增量），
+            # 成功则用新鲜数据；失败再回退本地旧快照。
+            db_dir = self._try_native_decrypt_refresh() or self._try_load_existing_db_dir()
             if not db_dir:
                 raise RuntimeError(
                     f"解密失败且未找到已解密数据库。\n"
@@ -449,6 +451,85 @@ class DecryptionMixin:
         if best_uid is None or _time.time() - best_mtime > 86400:
             return None
         return best_uid
+
+    def _try_native_decrypt_refresh(self):
+        """WSL/Linux 下触发 Windows 侧管理员任务重新解密当前登录账号。
+
+        通过 .wxdecrypt-native-trigger sentinel + ChatMemoirAdmin 计划任务
+        （免 UAC）运行 run_native_decrypt.py → 1-decrypt.py（内存扫 key +
+        增量解密到 <proj>/<uid>/db_storage/）。轮询 wxdecrypt.log 的
+        "exit code:" 完成标记，把新增日志行实时转发到 GUI 日志区。
+        成功返回新解密目录，失败/超时返回 None（调用方回退旧快照）。
+        """
+        import subprocess
+        import time as _time
+        schtasks = '/mnt/c/Windows/System32/schtasks.exe'
+        if not os.path.exists(schtasks):
+            self.log("  未找到 schtasks.exe（非 WSL 环境？），跳过刷新")
+            return None
+        live_uid = self._detect_live_wechat_uid()
+        if not live_uid:
+            self.log("  未检测到正在登录的微信账号（24h 内无数据写入），跳过刷新")
+            return None
+
+        proj = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_path = os.path.join(proj, 'wxdecrypt.log')
+        offset = os.path.getsize(log_path) if os.path.exists(log_path) else 0
+        # 记录触发时刻 — 完成后要求 info.json 比它新，防止把 6 月的旧产物当新结果
+        triggered_at = _time.time()
+
+        sentinel = os.path.join(proj, '.wxdecrypt-native-trigger')
+        with open(sentinel, 'w') as f:
+            f.write(str(int(triggered_at)))
+        try:
+            r = subprocess.run([schtasks, '/Run', '/TN', 'ChatMemoirAdmin'],
+                               capture_output=True, timeout=30)
+        except Exception as e:
+            self.log(f"  schtasks 启动异常: {e!r}")
+            return None
+        if r.returncode != 0:
+            self.log(f"  计划任务启动失败 (rc={r.returncode})，无法刷新")
+            return None
+
+        self.set_loading_status(f"正在重新解密当前账号 {live_uid}（Windows 管理员任务）...")
+        self.log("  已触发 Windows 侧原生解密，增量模式，可能需要几分钟...")
+
+        # ponytail: 20 分钟上限。历史全量跑 ~12 分钟（含失败的 YARA 扫描）；
+        # 增量重跑主要耗时在内存扫 key + PBKDF2，超时则回退旧快照不硬等。
+        deadline = _time.time() + 1200
+        pos = offset
+        while _time.time() < deadline:
+            _time.sleep(3)
+            if not os.path.exists(log_path):
+                continue
+            size = os.path.getsize(log_path)
+            if size <= pos:
+                continue
+            with open(log_path, 'rb') as f:
+                f.seek(pos)
+                chunk = f.read(size - pos)
+            pos = size
+            for raw_line in chunk.split(b'\n'):
+                line = raw_line.decode('utf-8', errors='replace').strip()
+                if not line:
+                    continue
+                self.log(f"  {line}")
+                if line.startswith('exit code:'):
+                    rc = line.split(':', 1)[1].strip()
+                    if rc != '0':
+                        self.log(f"  Windows 侧解密失败 (exit {rc})，回退本地旧快照")
+                        return None
+                    fresh = os.path.join(proj, live_uid, 'db_storage')
+                    info_json = os.path.join(fresh, 'info.json')
+                    if (os.path.exists(os.path.join(fresh, 'contact', 'contact.db'))
+                            and os.path.exists(info_json)
+                            and os.path.getmtime(info_json) > triggered_at):
+                        self.log(f"  当前账号解密完成: {fresh}")
+                        return fresh
+                    self.log("  解密退出码 0，但未见当前账号的新产物，回退旧快照")
+                    return None
+        self.log("  等待 Windows 侧解密超时（20 分钟），回退本地旧快照")
+        return None
 
     def _try_load_existing_db_dir(self):
         """Find an already-decrypted db_storage directory (non-Windows path)."""
