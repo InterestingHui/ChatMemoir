@@ -64,51 +64,47 @@ class DecryptionMixin:
         from memoir import Me, ArchiveConnection
         import json as _json
 
-        # ponytail: always try live decrypt first. If the platform can't do it
-        # (Linux/WSL2), fall back to loading a previously-decrypted db_storage.
-        # On Windows this path is never taken — WeChat process memory is readable.
-        try:
+        # ponytail: 实时内存解密仅 Windows 可用。此前在 WSL 上也先试再捕
+        # AttributeError("module 'ctypes' has no attribute 'windll'")，把预期
+        # 的平台差异当异常打进日志吓人 — 非 Windows 直接走三级回退，一行干净日志。
+        if _sys.platform == 'win32':
             return self._auto_decrypt_live()
-        except Exception as e:
-            if _sys.platform == 'win32':
-                raise  # on real Windows, surface the real error
-            self.log(f"实时解密不可用 ({e!r})，尝试刷新当前账号的解密数据...")
-            # 三级回退：① 历史 passphrase 本地直解（快，密钥未轮换时）→
-            # ② Windows 管理员任务内存扫 key 重解（慢但万能）→ ③ 本地旧快照。
-            db_dir = (self._try_passphrase_decrypt_refresh()
-                      or self._try_native_decrypt_refresh()
-                      or self._try_load_existing_db_dir())
-            if not db_dir:
-                raise RuntimeError(
-                    f"解密失败且未找到已解密数据库。\n"
-                    f"实时解密错误: {e}\n"
-                    f"请在 Windows 上运行本程序完成解密。"
-                ) from e
-            # ponytail: 身份断言 — 三级回退全靠 _detect_live_wechat_uid 的
-            # 最新-mtime 启发式选账号，切换账号瞬间旧账号登出 flush 会让检测
-            # 翻错方向，整条链路就静默加载旧账号数据。加载提交前再验一次：
-            # 目录账号 ≠ 当前登录账号 → 明确报错让用户稍后重试，绝不静默串号。
-            live_uid2, _ = self._detect_live_wechat_uid()
-            if live_uid2 and f'/{live_uid2}/' not in db_dir.replace('\\', '/'):
-                self.log(f"  账号不匹配: 当前登录 {live_uid2}，待加载目录 {db_dir}")
-                raise RuntimeError(
-                    f"当前登录的微信账号是 {live_uid2}，但解析流程选中了其他账号的数据"
-                    f"（{db_dir}）。账号刚切换时检测有几秒窗口，请稍等片刻后重试。"
-                )
-            self._db_version = 4
-            self.set_loading_status("正在加载联系人...")
-            self.set_loading_progress(1, 1, "")
-            self.log(f"加载已解密数据库: {db_dir}")
-            conn = ArchiveConnection(db_dir, self._db_version)
-            self.database = conn.get_interface()
-            if self.database is None:
-                raise RuntimeError(f"数据库初始化失败: {db_dir}")
-            self.db_dir_actual = db_dir
-            self._config['last_db_dir'] = db_dir
-            _save_config(self._config)
-            self.contacts = list(self.database.get_contacts())
-            self.log(f"加载完成: {len(self.contacts)} 个联系人")
-            return db_dir
+        self.log("WSL/Linux 环境：实时内存解密不可用，尝试刷新当前账号的解密数据...")
+        # 三级回退：① 历史 passphrase 本地直解（快，密钥未轮换时）→
+        # ② Windows 管理员任务内存扫 key 重解（慢但万能）→ ③ 本地旧快照。
+        db_dir = (self._try_passphrase_decrypt_refresh()
+                  or self._try_native_decrypt_refresh()
+                  or self._try_load_existing_db_dir())
+        if not db_dir:
+            raise RuntimeError(
+                "解密失败且未找到已解密数据库。\n"
+                "请在 Windows 上运行本程序完成解密。"
+            )
+        # ponytail: 身份断言 — 三级回退全靠 _detect_live_wechat_uid 的
+        # 最新-mtime 启发式选账号，切换账号瞬间旧账号登出 flush 会让检测
+        # 翻错方向，整条链路就静默加载旧账号数据。加载提交前再验一次：
+        # 目录账号 ≠ 当前登录账号 → 明确报错让用户稍后重试，绝不静默串号。
+        live_uid2, _ = self._detect_live_wechat_uid()
+        if live_uid2 and f'/{live_uid2}/' not in db_dir.replace('\\', '/'):
+            self.log(f"  账号不匹配: 当前登录 {live_uid2}，待加载目录 {db_dir}")
+            raise RuntimeError(
+                f"当前登录的微信账号是 {live_uid2}，但解析流程选中了其他账号的数据"
+                f"（{db_dir}）。账号刚切换时检测有几秒窗口，请稍等片刻后重试。"
+            )
+        self._db_version = 4
+        self.set_loading_status("正在加载联系人...")
+        self.set_loading_progress(1, 1, "")
+        self.log(f"加载已解密数据库: {db_dir}")
+        conn = ArchiveConnection(db_dir, self._db_version)
+        self.database = conn.get_interface()
+        if self.database is None:
+            raise RuntimeError(f"数据库初始化失败: {db_dir}")
+        self.db_dir_actual = db_dir
+        self._config['last_db_dir'] = db_dir
+        _save_config(self._config)
+        self.contacts = list(self.database.get_contacts())
+        self.log(f"加载完成: {len(self.contacts)} 个联系人")
+        return db_dir
 
     def _auto_decrypt_live(self):
         """实时解密: 扫描微信进程 → 提取密钥 → 解密数据库 → 加载联系人（仅 Windows）"""
