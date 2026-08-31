@@ -44,7 +44,9 @@ def _sync_pages_incremental(pkey, in_db_path, out_db_path):
     reserve = ((reserve + AES_BLOCK_SIZE - 1) // AES_BLOCK_SIZE) * AES_BLOCK_SIZE
 
     changed = 0
-    with open(in_db_path, 'rb') as f_in, open(out_db_path, 'r+b') as f_out:
+    # ponytail: 1MB 读缓冲 — 9p(/mnt/c) 上默认 8KB 缓冲的逐页读实测只有
+    # ~10MB/s，1MB 块读 ~141MB/s；改缓冲不改语义
+    with open(in_db_path, 'rb', buffering=1 << 20) as f_in, open(out_db_path, 'r+b') as f_out:
         salt = f_in.read(SALT_SIZE)
         if not salt:
             return None  # 空文件，落回全量路径报错
@@ -137,7 +139,8 @@ def decrypt_db_file_v4(pkey, in_db_path, out_db_path):
 
     success = False
     try:
-        with open(in_db_path, 'rb') as f_in, open(out_db_path, 'wb') as f_out:
+        with open(in_db_path, 'rb', buffering=1 << 20) as f_in, \
+                open(out_db_path, 'wb', buffering=1 << 20) as f_out:
             # Read salt from the first SALT_SIZE bytes
             salt = f_in.read(SALT_SIZE)
             if not salt:
