@@ -609,7 +609,7 @@ class TestDumpSessionInfoV4:
 
     @mock.patch('memoir.decrypt.session_v4.worker')
     @mock.patch('memoir.decrypt.session_v4.multiprocessing')
-    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4._CloseHandle')
     @mock.patch('memoir.decrypt.session_v4.open_process', return_value=None)
     @mock.patch('memoir.decrypt.session_v4.get_version', return_value=_TEST_VERSION)
     def test_open_process_returns_none_sets_404(
@@ -637,7 +637,7 @@ class TestDumpSessionInfoV4:
 
     @mock.patch('memoir.decrypt.session_v4.worker')
     @mock.patch('memoir.decrypt.session_v4.multiprocessing')
-    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4._CloseHandle')
     @mock.patch('memoir.decrypt.session_v4.get_wx_dir', return_value='')
     @mock.patch('memoir.decrypt.session_v4.open_process', return_value=mock.MagicMock())
     @mock.patch('memoir.decrypt.session_v4.get_version', return_value=_TEST_VERSION)
@@ -660,7 +660,7 @@ class TestDumpSessionInfoV4:
 
     @mock.patch('memoir.decrypt.session_v4.worker')
     @mock.patch('memoir.decrypt.session_v4.multiprocessing')
-    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4._CloseHandle')
     @mock.patch('memoir.decrypt.session_v4.regex_scan_keys')
     @mock.patch('memoir.decrypt.session_v4.collect_db_salts')
     @mock.patch('memoir.decrypt.session_v4.get_wx_dir', return_value=_TEST_DB_STORAGE)
@@ -701,7 +701,7 @@ class TestDumpSessionInfoV4:
 
     @mock.patch('memoir.decrypt.session_v4.worker')
     @mock.patch('memoir.decrypt.session_v4.multiprocessing')
-    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4._CloseHandle')
     @mock.patch('memoir.decrypt.session_v4.get_key')
     @mock.patch('memoir.decrypt.session_v4.regex_scan_keys', return_value={})
     @mock.patch('memoir.decrypt.session_v4.get_wx_dir', return_value=_TEST_DB_STORAGE)
@@ -735,7 +735,7 @@ class TestDumpSessionInfoV4:
 
     @mock.patch('memoir.decrypt.session_v4.worker')
     @mock.patch('memoir.decrypt.session_v4.multiprocessing')
-    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4._CloseHandle')
     @mock.patch('memoir.decrypt.session_v4.get_key')
     @mock.patch('memoir.decrypt.session_v4.collect_db_salts')
     @mock.patch('memoir.decrypt.session_v4.regex_scan_keys', return_value={})
@@ -782,7 +782,7 @@ class TestDumpSessionInfoV4:
 
     @mock.patch('memoir.decrypt.session_v4.worker')
     @mock.patch('memoir.decrypt.session_v4.multiprocessing')
-    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4._CloseHandle')
     @mock.patch('memoir.decrypt.session_v4.get_key', return_value=(None, False))
     @mock.patch('memoir.decrypt.session_v4.regex_scan_keys', return_value={})
     @mock.patch('memoir.decrypt.session_v4.get_wx_dir', return_value=_TEST_DB_STORAGE)
@@ -812,7 +812,7 @@ class TestDumpSessionInfoV4:
         mock_close_handle.assert_called_once()
 
     @mock.patch('memoir.decrypt.session_v4.worker')
-    @mock.patch('memoir.decrypt.session_v4.CloseHandle')
+    @mock.patch('memoir.decrypt.session_v4._CloseHandle')
     @mock.patch('memoir.decrypt.session_v4.get_wx_dir', return_value=_TEST_DB_STORAGE)
     @mock.patch('memoir.decrypt.session_v4.open_process', return_value=mock.MagicMock())
     @mock.patch('memoir.decrypt.session_v4.get_version', return_value=_TEST_VERSION)
