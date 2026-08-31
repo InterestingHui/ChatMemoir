@@ -23,7 +23,7 @@ WeChat 4.1.10+ 把内存中的 raw passphrase 用一个 32-byte `internal_db_key
 
 ### Key Discovery: passphrase 不轮换 → WSL 本地直解
 
-WCDB passphrase 只在重登/换号时轮换，平常升级微信、日常使用都不变。历史解密产物 `info.json` 里存着 passphrase（明文 hex），对当前 `/mnt/c` 加密库做一次 PBKDF2 验证即可确认仍有效 —— 有效则 **Linux 侧纯 pycryptodome 增量解密当前数据**（29 库 2.9G：PBKDF2 ~15s + AES 分钟级），无需 Windows 内存扫描。`gui/decryption.py` 的 WSL 回退按三级尝试：① `_try_passphrase_decrypt_refresh()` 本地直解 → ② `_try_native_decrypt_refresh()` 管理员任务内存扫 key（sentinel + ChatMemoirAdmin，YARA 17 万候选小时级，仅密钥轮换后需要）→ ③ `_try_load_existing_db_dir()` 旧快照。快照落后实时数据 <30 分钟时 `_fresh_snapshot_dir()` 直接短路加载。
+WCDB passphrase 只在重登/换号时轮换，平常升级微信、日常使用都不变。历史解密产物 `info.json` 里存着 passphrase（明文 hex），对当前 `/mnt/c` 加密库做一次 PBKDF2 验证即可确认仍有效 —— 有效则 **Linux 侧纯 pycryptodome 增量解密当前数据**（逐页 HMAC 尾巴比对只重写变更页，实测 1GB 变更文件只需 ~6s；per-file key 缓存 `keycache.json` 免掉每次 ~15s PBKDF2），无需 Windows 内存扫描。`gui/decryption.py` 的 WSL 回退按三级尝试：① `_try_passphrase_decrypt_refresh()` 本地直解 → ② `_try_native_decrypt_refresh()` 管理员任务内存扫 key（sentinel + ChatMemoirAdmin，YARA 17 万候选小时级，仅密钥轮换后需要）→ ③ `_try_load_existing_db_dir()` 旧快照。快照落后实时数据 <10 分钟时 `_fresh_snapshot_dir()` 直接短路加载。注意：微信正在写库时刷新可能读到撕裂状态产出损坏 db（新旧路径共有，重跑一次刷新即好）。
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:codebase/STACK.md -->
