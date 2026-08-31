@@ -164,11 +164,41 @@ def check_5_shrunk_src_full_rewrite(tmp):
     assert len(out) == 4 * PAGE_SIZE
 
 
+def check_6_torn_read_retry(tmp):
+    """微信在解密期间写入 src（mtime 变化）→ 重试一次；重试稳定则结果正确。"""
+    from unittest import mock
+    from memoir.decrypt import decrypt_v4
+    key, salt = os.urandom(KEY_SIZE), os.urandom(SALT_SIZE)
+    src_dir = os.path.join(tmp, 'c6src')
+    dst_dir = os.path.join(tmp, 'c6dst')
+    os.makedirs(os.path.join(src_dir, 'message'))
+    src = os.path.join(src_dir, 'message', 'x.db')
+    build_src(src, key, salt, 6)
+    calls = []
+    real = decrypt_v4.decode_wrapper
+
+    def torn_then_stable(task):
+        calls.append(task)
+        result = real(task)
+        if len(calls) == 1:  # 第一次解密完成瞬间模拟微信并发写入
+            t = os.stat(src).st_mtime_ns + 1_000_000_000
+            os.utime(src, ns=(t, t))
+        return result
+
+    with mock.patch.object(decrypt_v4, 'decode_wrapper', side_effect=torn_then_stable):
+        total, failed = decrypt_v4.decrypt_db_files(key.hex(), src_dir, dst_dir)
+    assert (total, failed) == (1, 0)
+    assert len(calls) == 2, '检测到解密期间被写入必须重试一次'
+    ref = os.path.join(tmp, 'c6.ref.db')
+    assert decrypt_db_file_v4(key.hex(), src, ref) is True
+    assert _read(os.path.join(dst_dir, 'message', 'x.db')) == _read(ref)
+
+
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory() as tmp:
         for fn in (check_1_full_decrypt, check_2_incremental_matches_full,
                    check_3_noop_sync_writes_nothing, check_4_key_error_preserves_dst,
-                   check_5_shrunk_src_full_rewrite):
+                   check_5_shrunk_src_full_rewrite, check_6_torn_read_retry):
             fn(tmp)
             print(f'PASS {fn.__name__}')
     print('ALL PASS')

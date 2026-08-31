@@ -309,11 +309,29 @@ def decrypt_db_files(key, src_dir: str, dest_dir: str, key_map: dict = None,
     completed = 0
     failed = 0
     for db_key, src_file_path, dest_file_path in decrypt_tasks:
-        try:
-            result = decode_wrapper((db_key, src_file_path, dest_file_path))
-        except Exception as e:
-            logger.info(f"解密异常 {os.path.basename(dest_file_path)}: {e!r}")
-            result = False
+        # ponytail: 撕裂读防护 — 微信边写边读时顺序扫页可能抓到两个事务状态的
+        # 混合，产出 malformed 库。前后各 stat 一次，src 在解密期间被写过就重试
+        # 一次；还在写就接受结果并告警（下次刷新自愈）。stat 判据零成本。
+        for attempt in (1, 2):
+            try:
+                _st = os.stat(src_file_path)
+                before = (_st.st_mtime, _st.st_size)
+                result = decode_wrapper((db_key, src_file_path, dest_file_path))
+            except Exception as e:
+                logger.info(f"解密异常 {os.path.basename(dest_file_path)}: {e!r}")
+                result = False
+                break
+            try:
+                _st = os.stat(src_file_path)
+                after = (_st.st_mtime, _st.st_size)
+            except OSError:
+                break  # src 没了，结果作数与否由 result 决定
+            if result is not True or before == after:
+                break
+            if attempt == 1:
+                logger.info(f"{os.path.basename(src_file_path)} 在解密期间被微信写入，重试以防撕裂读")
+            else:
+                logger.info(f"警告: {os.path.basename(src_file_path)} 解密期间持续被写入，结果可能不完整，下次刷新自愈")
         completed += 1
         if result is not True:
             failed += 1
