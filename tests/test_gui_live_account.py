@@ -27,17 +27,22 @@ class _Stub(DecryptionMixin):
         print(f"  [gui] {msg}")
 
 
-def test_detect_live_uid():
+def _detect_live():
+    """公共探测：pytest 与 standalone __main__ 共用。"""
     stub = _Stub('')
-    uid, mtime = stub._detect_live_wechat_uid()
+    return stub._detect_live_wechat_uid()
+
+
+def test_detect_live_uid():
+    uid, mtime = _detect_live()
     print(f"detect_live_wechat_uid -> ({uid!r}, {mtime})")
     assert uid in (None, 'wxid_ka89oj7i1mz622', 'wxid_ttlo1sb5pyh811'), uid
     if uid is not None:
         assert mtime > 0, "有 uid 时必须带热点 mtime"
-    return uid
 
 
-def test_fallback_prefers_live_account(live_uid):
+def test_fallback_prefers_live_account():
+    live_uid, _ = _detect_live()
     # last_db_dir 故意指向旧账号 — 修复后应返回当前登录账号
     old = '/home/ChatMemoir/decrypted/wxid_ka89oj7i1mz622/db_storage'
     stub = _Stub(old)
@@ -65,9 +70,9 @@ def test_missing_live_data_raises():
 
 if __name__ == '__main__':
     print("== detect live uid ==")
-    live = test_detect_live_uid()
+    test_detect_live_uid()
     print("== fallback prefers live account ==")
-    test_fallback_prefers_live_account(live)
+    test_fallback_prefers_live_account()
     print("== missing live data raises ==")
     test_missing_live_data_raises()
     print("\nALL PASS")

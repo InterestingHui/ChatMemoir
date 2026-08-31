@@ -149,6 +149,10 @@ class _FakeHost(LoggingMixin):
         self._loading_progress = mock.MagicMock()
         self._lbl_loading_pct = mock.MagicMock()
 
+    def _ui_call(self, fn):
+        # 生产版走 threads.py 的队列调度；测试同步执行即可
+        fn()
+
 
 class TestSetLoadingProgress:
     """Regression tests: set_loading_progress must exit marquee mode before
@@ -268,6 +272,10 @@ class _FakeApp:
     imports (gui/decryption.py:56-58); patching gui.decryption.* would have
     no effect since the local import rebinds the names.
     """
+
+    def _ui_call(self, fn):
+        # 生产版走 threads.py 的队列调度；测试同步执行即可
+        fn()
 
     def __init__(self, tmp_path):
         from gui.decryption import DecryptionMixin
@@ -400,7 +408,7 @@ class TestAutoDecryptProgressFlow:
     eventually stop()s, and writes the value sequence [0, 50, 100]."""
 
     def test_progress_flow_start_then_stop_then_value_sequence(self, tmp_path, monkeypatch):
-        # Arrange — build a fake app and patch the decrypt stack
+        # Arrange — build a fake app and patch the decrypt stack.
         app = _FakeApp(tmp_path)
         session_info = _build_session_info(tmp_path)
         _patch_decrypt_stack(monkeypatch, session_info)
@@ -419,17 +427,20 @@ class TestAutoDecryptProgressFlow:
                     raise
         app.run_task = mock.MagicMock(side_effect=_sync_run_task)
 
+        # b153ea6 起 _auto_decrypt 在非 Windows 直接走 WSL 回退路径，不再进入
+        # _auto_decrypt_live；覆盖 live 分支必须强制 platform=win32。注意时机：
+        # 须在 memoir 等模块首次导入完成后（上面的 build/patch 链），否则
+        # multiprocessing 会按 win32 选择 context 去导入 _winapi。
+        monkeypatch.setattr(sys, "platform", "win32")
+
         # Act — trigger the start button command
         app._on_start()
 
-        # Assert 1: _loading_progress.start was called once with (10,) — the
-        # marquee kick-off that was the original bug.
-        start_calls = [c for c in app._loading_progress.start.call_args_list]
-        assert len(start_calls) == 1, (
-            f"expected exactly one start() call, got {len(start_calls)}: {start_calls}"
-        )
-        assert start_calls[0].args == (10,), (
-            f"start() called with {start_calls[0].args!r}, expected (10,)"
+        # Assert 1（现行契约）: 扫描阶段不再启动 marquee —— start(10) 弹跳条
+        # 与实际进度不符，用户反馈误导后已移除；进度条保持 determinate 0%。
+        assert not app._loading_progress.start.called, (
+            f"_on_start must NOT call start() (marquee removed); got "
+            f"{app._loading_progress.start.call_args_list}"
         )
 
         # Assert 2: stop was called at least once (set_loading_progress._update
@@ -458,9 +469,9 @@ class TestAutoDecryptProgressFlow:
         assert 100 in value_assignments, (
             f"value=100 missing from sequence: {value_assignments!r}"
         )
-        # And the order must be non-decreasing (start marquee → real progress).
-        # Note: _on_start itself does not set value, but set_loading_progress(0,1,"")
-        # is called once before decrypt_db_files, so value=0 appears first.
+        # And the order must be non-decreasing.
+        # _on_start resets value=0; set_loading_progress(0,1,"") runs before
+        # decrypt_db_files, so value=0 appears first; completion sets 100.
         assert value_assignments[0] == 0, (
             f"first value assignment should be 0 (initial reset), got {value_assignments[0]}"
         )
@@ -468,27 +479,18 @@ class TestAutoDecryptProgressFlow:
             f"final value assignment should be 100 (complete), got {value_assignments[-1]}"
         )
 
-        # Assert 4: mode switches indeterminate → determinate.
-        # _on_start must configure mode="indeterminate" so start(10) produces
-        # a true marquee (block bouncing) during the unknown-duration YARA scan,
-        # NOT the misleading 0→100→0 cycling of a determinate bar.
-        # set_loading_progress must flip back to mode="determinate" so [value]
-        # reflects real X/Y progress.
+        # Assert 4（现行契约）: 全程 determinate —— _on_start 先置 determinate，
+        # set_loading_progress 后续更新也保持 determinate；不允许出现
+        # indeterminate（那意味着 marquee 又回来了）。
         mode_calls = [
             c.kwargs.get("mode") for c in app._loading_progress.configure.call_args_list
             if c.kwargs and "mode" in c.kwargs
         ]
-        assert "indeterminate" in mode_calls, (
-            f"_on_start must configure mode='indeterminate' for scan phase; "
-            f"mode calls: {mode_calls!r}"
+        assert mode_calls and mode_calls[0] == "determinate", (
+            f"_on_start must configure mode='determinate' at 0%; mode calls: {mode_calls!r}"
         )
-        assert "determinate" in mode_calls, (
-            f"set_loading_progress must configure mode='determinate' on first "
-            f"real progress; mode calls: {mode_calls!r}"
-        )
-        # Order matters: indeterminate (scan) must precede determinate (progress).
-        assert mode_calls.index("indeterminate") < mode_calls.index("determinate"), (
-            f"indeterminate must be set before determinate; mode calls: {mode_calls!r}"
+        assert "indeterminate" not in mode_calls, (
+            f"marquee (indeterminate) must not appear; mode calls: {mode_calls!r}"
         )
 
     def test_set_loading_progress_idempotent_stop(self):
@@ -516,7 +518,7 @@ class TestAutoDecryptProgressFlow:
         Previously this loop had no progress_callback, leaving the bar in
         start(10) cycling mode for the full 30-60s PBKDF2 duration."""
 
-        # Arrange: SessionInfo with key=None forces the PBKDF2 branch
+        # Arrange: SessionInfo with key=None forces the PBKDF2 branch.
         session_info = _build_session_info(tmp_path, key=None)
         data_dir = session_info.data_dir
         os.makedirs(data_dir, exist_ok=True)
@@ -549,6 +551,10 @@ class TestAutoDecryptProgressFlow:
                 else:
                     raise
         app.run_task = mock.MagicMock(side_effect=_sync_run_task)
+
+        # b153ea6 起 WSL 上 _auto_decrypt 不再进 live 分支，强制 win32
+        # （在模块导入完成后才 patch，理由见上一个测试）。
+        monkeypatch.setattr(sys, "platform", "win32")
 
         # Act
         app._on_start()
