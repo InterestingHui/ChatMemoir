@@ -22,7 +22,7 @@ server
 *.bat
 *.log
 *.spec
-test*
+/test*
 !tests/
 wordcloud.html
 
