@@ -464,11 +464,12 @@ class DecryptionMixin:
         return best_uid, best_mtime
 
     def _fresh_snapshot_dir(self, live_uid, live_mtime):
-        """新鲜度门：快照落后实时数据 <30 分钟时直接返回其 db_storage 目录。
+        """新鲜度门：快照落后实时数据 <10 分钟时直接返回其 db_storage 目录。
 
-        ponytail: 30min 窗口是体验粒度标定旋钮 — 要更实时就调小；每次点击都
-        触发长解密难以接受就调大。快照位置查两处：1-decrypt 的 <proj>/<uid>/
-        和本地 passphrase 直解的 decrypted/<uid>/（两个刷新路径各自的输出约定）。
+        ponytail: 10min 窗口是体验粒度标定旋钮 — 要更实时就调小；每次点击都
+        触发解密难以接受就调大（解密已增量页级化，稳态秒级）。快照位置查两处：
+        1-decrypt 的 <proj>/<uid>/ 和本地 passphrase 直解的 decrypted/<uid>/
+        （两个刷新路径各自的输出约定）。
         """
         proj = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         for base in (os.path.join(proj, live_uid), os.path.join(proj, 'decrypted', live_uid)):
@@ -478,7 +479,7 @@ class DecryptionMixin:
                 continue
             if not os.path.exists(info_json):
                 continue
-            if os.path.getmtime(info_json) >= live_mtime - 30 * 60:
+            if os.path.getmtime(info_json) >= live_mtime - 10 * 60:
                 return db_storage
         return None
 
@@ -579,15 +580,40 @@ class DecryptionMixin:
                     continue
                 db_candidates.append((root, fn))
         total = len(db_candidates)
-        self.set_loading_status(f"正在派生数据库密钥（{total} 个，每个约0.5s）...")
-        self.set_loading_progress(0, max(total, 1), "")
+        # 每文件 key 缓存：salt 命中即免 PBKDF2（~0.5s/个，29 个库共 ~15s）。
+        # 第 3 步已先验证 passphrase 对当前数据有效 → 缓存 key 必然同源，salt
+        # 匹配即可复用。明文 key 与 info.json 的明文 passphrase 同目录同威胁
+        # 模型（本机单用户），不再额外加密。
+        keycache_path = os.path.join(proj, 'decrypted', live_uid, 'keycache.json')
+        try:
+            _kc = _json.load(open(keycache_path, 'r', encoding='utf-8'))
+            keycache = _kc if isinstance(_kc, dict) else {}
+        except Exception:
+            keycache = {}
         key_map = {}
-        for i, (root, fn) in enumerate(db_candidates):
+        misses = []  # (rel_path, salt, fn) 缓存未命中、需要 PBKDF2 的
+        for root, fn in db_candidates:
+            rel = os.path.join(os.path.relpath(root, db_storage_src), fn)
             with open(os.path.join(root, fn), 'rb') as fh:
                 s = fh.read(SALT_SIZE)
-            key_map[os.path.join(os.path.relpath(root, db_storage_src), fn)] = \
-                _hl.pbkdf2_hmac('sha512', pp_bytes, s, 256000, dklen=KEY_SIZE).hex()
-            self.set_loading_progress(i + 1, total, fn)
+            cached = keycache.get(rel) or {}
+            if cached.get('salt') == s.hex() and cached.get('key'):
+                key_map[rel] = cached['key']
+            else:
+                misses.append((rel, s, fn))
+        if misses:
+            self.set_loading_status(f"正在派生数据库密钥（{len(misses)}/{total} 个新文件，每个约0.5s）...")
+            self.set_loading_progress(0, len(misses), "")
+            for i, (rel, s, fn) in enumerate(misses):
+                key_map[rel] = _hl.pbkdf2_hmac('sha512', pp_bytes, s, 256000, dklen=KEY_SIZE).hex()
+                keycache[rel] = {'salt': s.hex(), 'key': key_map[rel]}
+                self.set_loading_progress(i + 1, len(misses), fn)
+        else:
+            self.log(f"  {total} 个库的 key 全部缓存命中，免 PBKDF2")
+        # 合并写回（旧条目保留；已删文件的陈旧条目无害，不清理）
+        os.makedirs(os.path.dirname(keycache_path), exist_ok=True)
+        with open(keycache_path, 'w', encoding='utf-8') as f:
+            _json.dump(keycache, f, ensure_ascii=False)
 
         # 5. 增量解密到 decrypted/<uid>/db_storage/（沿用既有快照位置，
         # skip_existing 复用未变文件；src/db 基准一致 → key_map 相对路径吻合）
