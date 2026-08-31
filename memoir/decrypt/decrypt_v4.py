@@ -20,6 +20,102 @@ SALT_SIZE = 16
 SQLITE_HEADER = b"SQLite format 3"
 
 
+def _sync_pages_incremental(pkey, in_db_path, out_db_path):
+    """增量页同步：比对每页 80B IV+HMAC 尾巴，未变的页跳过。
+
+    返回 True=同步完成 / False=密钥错误（保留 dst 旧快照）/ None=前置条件不满足
+    （调用方落回全量重写）。异常不在此兜底 — 由调用方整体转全量路径。
+
+    ponytail: 解密输出的每页尾巴与密文源逐字节相同（页 0 只把前 16B salt 换成
+    SQLite 头，尾巴在 80B reserve 区原样拷贝），所以尾巴相同 ⇔ 该页密文未变 —
+    免 AES、免 HMAC、免写入，只多花一次本地 dst 随机读。
+    """
+    src_size = os.path.getsize(in_db_path)
+    if not os.path.exists(out_db_path):
+        return None
+    dst_size = os.path.getsize(out_db_path)
+    # 页对齐 + 只增不减；否则交给全量路径按旧语义处理
+    if (dst_size < PAGE_SIZE or dst_size % PAGE_SIZE
+            or src_size % PAGE_SIZE or src_size < dst_size):
+        return None
+
+    # Reserve space for IV_SIZE + HMAC_SHA512_SIZE, rounded to a multiple of AES_BLOCK_SIZE
+    reserve = IV_SIZE + HMAC_SHA512_SIZE
+    reserve = ((reserve + AES_BLOCK_SIZE - 1) // AES_BLOCK_SIZE) * AES_BLOCK_SIZE
+
+    changed = 0
+    with open(in_db_path, 'rb') as f_in, open(out_db_path, 'r+b') as f_out:
+        salt = f_in.read(SALT_SIZE)
+        if not salt:
+            return None  # 空文件，落回全量路径报错
+
+        mac_salt = bytes(x ^ 0x3a for x in salt)
+        key = bytes.fromhex(pkey)
+        mac_key = PBKDF2(key, mac_salt, dkLen=KEY_SIZE, count=2, hmac_hash_module=SHA512)
+
+        dst_page_count = dst_size // PAGE_SIZE
+        cur_page = 0
+        while True:
+            # 与全量路径相同的顺序读法（9p 随机 seek 极慢，保持顺序流）
+            if cur_page == 0:
+                page = f_in.read(PAGE_SIZE - SALT_SIZE)
+                if not page:
+                    break
+                page = salt + page
+            else:
+                page = f_in.read(PAGE_SIZE)
+            if not page:
+                break
+            offset = SALT_SIZE if cur_page == 0 else 0
+            end = len(page)
+
+            # 已有页且尾巴相同 → 密文未变，跳过
+            if cur_page < dst_page_count:
+                f_out.seek(cur_page * PAGE_SIZE)
+                dst_page = f_out.read(PAGE_SIZE)
+                if dst_page[end - reserve:] == page[end - reserve:]:
+                    cur_page += 1
+                    continue
+
+            # 全零页不加密、原样写回
+            if all(x == 0 for x in page):
+                f_out.seek(cur_page * PAGE_SIZE)
+                f_out.write(page)
+                changed += 1
+                cur_page += 1
+                continue
+
+            # HMAC 校验：不通过即密钥错误 — dst 仍是旧的完整快照，直接返回
+            mac = hmac.new(mac_key, page[offset:end - reserve + IV_SIZE], SHA512)
+            mac.update(struct.pack('<I', cur_page + 1))
+            hash_mac = mac.digest()
+            hash_mac_start_offset = end - reserve + IV_SIZE
+            if hash_mac != page[hash_mac_start_offset:hash_mac_start_offset + len(hash_mac)]:
+                logger.info(f'Key error for {in_db_path}')
+                return False
+
+            iv = page[end - reserve:end - reserve + IV_SIZE]
+            cipher = AES.new(key, AES.MODE_CBC, iv)
+            decrypted_data = cipher.decrypt(page[offset:end - reserve])
+
+            f_out.seek(cur_page * PAGE_SIZE)
+            if cur_page == 0:
+                f_out.write(SQLITE_HEADER)
+                f_out.write(b'\x00')
+            f_out.write(decrypted_data)
+            f_out.write(page[end - reserve:end])
+            changed += 1
+            cur_page += 1
+
+        # 追加页时对齐最终大小；尺寸已一致时跳过 truncate，避免无谓触碰 mtime
+        final_size = cur_page * PAGE_SIZE
+        if final_size != dst_size:
+            f_out.truncate(final_size)
+
+    logger.info(f"增量页同步完成: {cur_page - changed}/{cur_page} 页未变。")
+    return True
+
+
 def decrypt_db_file_v4(pkey, in_db_path, out_db_path):
     if not os.path.exists(in_db_path):
         logger.info(f"【!!!】{in_db_path} does not exist.")
@@ -28,6 +124,16 @@ def decrypt_db_file_v4(pkey, in_db_path, out_db_path):
     # 移除已有输出文件的只读属性，避免 PermissionError
     if os.path.exists(out_db_path):
         os.chmod(out_db_path, stat.S_IWRITE | stat.S_IREAD)
+
+    # 增量页同步优先：True/False 直接返回（False=密钥错误，保留 dst 旧快照）；
+    # None（前置条件不满足）或任何异常 → 落回下面的全量重写
+    try:
+        result = _sync_pages_incremental(pkey, in_db_path, out_db_path)
+    except Exception as e:
+        logger.info(f"增量同步失败，转全量重写 {in_db_path}: {e!r}")
+        result = None
+    if result is not None:
+        return result
 
     success = False
     try:

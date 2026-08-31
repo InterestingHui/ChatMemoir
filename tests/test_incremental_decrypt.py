@@ -159,7 +159,9 @@ def check_5_shrunk_src_full_rewrite(tmp):
     assert decrypt_db_file_v4(key.hex(), small, dst) is True  # 已有更大的 dst → 全量
     ref = os.path.join(tmp, 'c5.ref.db')
     assert decrypt_db_file_v4(key.hex(), small, ref) is True
-    assert _read(dst) == _read(ref) == 4 * PAGE_SIZE
+    out = _read(dst)
+    assert out == _read(ref)
+    assert len(out) == 4 * PAGE_SIZE
 
 
 if __name__ == '__main__':
