@@ -39,9 +39,14 @@ class ExportMixin:
         self._config["output_dir"] = self._output_dir.get()
         _save_config(self._config)
 
+        name = (self.selected_contact.remark or self.selected_contact.nickname
+                or self.selected_contact.uid)
+        self.set_status(f"正在导出 {name} ({fmt})...")
+        self.log(f"开始导出: {name} [{fmt}] → {self._scoped_output_dir()}")
+        self._ui_call(self.start_export_progress)
         self.run_task(
             lambda: self._do_export(fmt, time_range),
-            on_done=lambda _: self._on_export_done(),
+            on_done=lambda d: self._on_export_done(d),
             on_error=lambda e: self._on_export_error(e),
         )
 
@@ -57,9 +62,11 @@ class ExportMixin:
             f"将为 {len(self.contacts)} 个联系人导出 HTML。\n这可能需要几分钟。继续？",
         ):
             return
+        self.set_status(f"批量导出中 (0/{len(self.contacts)})...")
+        self._ui_call(self.start_export_progress)
         self.run_task(
             self._do_batch_export,
-            on_done=lambda _: self._on_export_done(),
+            on_done=lambda d: self._on_export_done(d),
             on_error=lambda e: self._on_export_error(e),
         )
 
@@ -125,11 +132,13 @@ class ExportMixin:
         scribe.start()
         return output_dir
 
-    def _on_export_done(self):
+    def _on_export_done(self, output_dir=None):
         self.set_status("导出完成")
         self.set_progress(100)
+        self.log(f"导出完成: {output_dir or '输出目录'}")
         messagebox.showinfo("导出完成", "聊天记录导出成功！")
 
     def _on_export_error(self, e):
         self.set_status(f"导出失败: {e}")
+        self.log(f"导出失败: {e}")
         self.set_progress(0)

@@ -183,8 +183,7 @@ class ArchiveV4(ArchiveInterface):
                     res.extend(future.result())
 
         et = time.time()
-        logger.error(f'获取聊天记录完成：{et}')
-        logger.error(f'获取聊天记录耗时：{et - st:.2f}s/{len(res)}条消息 {username_}')
+        logger.info(f'获取聊天记录耗时：{et - st:.2f}s/{len(res)}条消息 {username_}')
         res.sort()
         return res
 

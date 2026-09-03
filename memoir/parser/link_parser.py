@@ -557,9 +557,9 @@ def parser_merged_messages(xml: str, output_dir, uid, msg_time, level=0):
             'messages': parser_record_item(recorditem, output_dir, uid, msg_time, level),  # List[dict] 消息内容
         }
     except Exception:
-        logger.error(xml)
-        # logger.error(new_xml1)
-        # logger.error(new_xml2)
+        # ponytail: 只记头部 300 字符 — 全量 XML 一条能刷几十 KB 日志，
+        # 且 ExpatError 行列号在前 300 字符内就能定位。
+        logger.error(f'合并消息解析失败, xml 头部: {xml[:300]!r}')
         logger.error(traceback.format_exc())
         # raise ValueError('合并转发的消息解析失败')
         return {

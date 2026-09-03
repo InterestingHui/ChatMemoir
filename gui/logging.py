@@ -57,8 +57,27 @@ class LoggingMixin:
 
     def set_progress(self, pct):
         """设置导出进度（0-100）"""
+        # marquee 模式下 [value] 写入被忽略（同 set_loading_progress 的坑），
+        # 先 stop() 再切回 determinate，跑马灯→真实百分比的交接才生效。
+        try:
+            self._export_progress.stop()
+        except Exception:
+            pass
+        self._export_progress.configure(mode="determinate")
         self._export_progress["value"] = pct
         if pct > 0:
             self._export_progress.pack(side="left", padx=(8, 4))
         if pct >= 100:
             self._export_progress.pack_forget()
+
+    def start_export_progress(self):
+        """导出开始时显示跑马灯进度条。
+
+        ponytail: 读消息/解析阶段耗时未知且无回调（get_messages 是单次阻塞
+        调用），跑马灯足以回答"在不在干活"；首个真实百分比回调到达后
+        set_progress 会接管成 determinate。要真进度条就给 get_messages 加
+        分批回调，等有人抱怨再加。
+        """
+        self._export_progress.configure(mode="indeterminate")
+        self._export_progress.pack(side="left", padx=(8, 4))
+        self._export_progress.start(50)
