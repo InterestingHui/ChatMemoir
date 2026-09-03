@@ -69,7 +69,7 @@ class DecryptionMixin:
         # 的平台差异当异常打进日志吓人 — 非 Windows 直接走三级回退，一行干净日志。
         if _sys.platform == 'win32':
             return self._auto_decrypt_live()
-        self.log("WSL/Linux 环境：实时内存解密不可用，尝试刷新当前账号的解密数据...")
+        self.log("WSL 环境：跳过内存扫描，使用已存密钥增量刷新当前账号数据...")
         # 三级回退：① 历史 passphrase 本地直解（快，密钥未轮换时）→
         # ② Windows 管理员任务内存扫 key 重解（慢但万能）→ ③ 本地旧快照。
         db_dir = (self._try_passphrase_decrypt_refresh()
