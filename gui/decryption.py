@@ -373,6 +373,7 @@ class DecryptionMixin:
                         pass
 
             import json as _json2
+            me.image_aes_key = self._read_wx_key_image_key() or ''
             os.makedirs(info_dir, exist_ok=True)
             with open(os.path.join(info_dir, "info.json"), "w", encoding="utf-8") as f:
                 _json2.dump(me.to_json(), f, ensure_ascii=False, indent=4)
@@ -521,6 +522,18 @@ class DecryptionMixin:
         # 2. 从历史 info.json 找 passphrase（新 layout 优先，旧 decrypted/ 兜底）
         proj = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         passphrase = None
+        # 图片 dat 解密的异或密钥只存在 Windows 侧解密写的 info.json 里
+        # （passphrase 命中即 break 的循环可能到不了那个文件），先单独扫一遍。
+        xor_key = None
+        for info_path in (os.path.join(proj, live_uid, 'db_storage', 'info.json'),
+                          os.path.join(proj, live_uid, 'info.json')):
+            try:
+                _ik = _json.load(open(info_path, 'r', encoding='utf-8')).get('xor_key')
+                if _ik:
+                    xor_key = _ik
+                    break
+            except Exception:
+                continue
         for info_path in (os.path.join(proj, live_uid, 'info.json'),
                           os.path.join(proj, live_uid, 'db_storage', 'info.json'),
                           os.path.join(proj, 'decrypted', live_uid, 'info.json')):
@@ -642,6 +655,11 @@ class DecryptionMixin:
         info.setdefault('username', live_uid)
         info['wx_dir'] = acct_dir.replace('/mnt/c/', 'C:\\').replace('/', '\\')
         info['passphrase'] = passphrase
+        if xor_key is not None:
+            info['xor_key'] = xor_key  # 图片 dat 解密需要；缺失会让导出图片全丢
+        image_aes_key = self._read_wx_key_image_key()
+        if image_aes_key:
+            info['image_aes_key'] = image_aes_key
         os.makedirs(db_storage, exist_ok=True)
         for p in (parent_info, os.path.join(db_storage, 'info.json')):
             with open(p, 'w', encoding='utf-8') as f:
@@ -794,6 +812,33 @@ class DecryptionMixin:
                     return cached_key
             except Exception:
                 pass
+        return None
+
+    @staticmethod
+    def _read_wx_key_image_key():
+        """读 wx_key 缓存的 V2 图片动态 AES 密钥（wx_key.exe「图片密钥」按钮提取）。
+
+        微信 4.1 的图片 AES 密钥按账号动态生成、仅查看图片时驻留内存，
+        无法像 xor_key 一样从文件推导 — 只能由 wx_key 从内存提取。缓存文件
+        在 Windows %APPDATA% 下；WSL 经 /mnt/c 读取同一文件。
+        返回 32 位 hex 字符串或 None。
+        """
+        import glob as _glob
+        import json as _json
+        import sys as _sys
+        if _sys.platform == 'win32':
+            candidates = [os.path.join(os.environ.get('APPDATA', ''),
+                                       'com.example', 'wx_key', 'shared_preferences.json')]
+        else:
+            candidates = _glob.glob('/mnt/c/Users/*/AppData/Roaming/com.example/wx_key/shared_preferences.json')
+        for path in candidates:
+            try:
+                prefs = _json.load(open(path, 'r', encoding='utf-8'))
+            except Exception:
+                continue
+            v = prefs.get('flutter.image_aes_key', '') or prefs.get('image_aes_key', '')
+            if isinstance(v, str) and len(v) == 32 and all(c in '0123456789abcdefABCDEF' for c in v):
+                return v.lower()
         return None
 
     def _get_wx_key_passphrase(self, uid, force_refresh=False):

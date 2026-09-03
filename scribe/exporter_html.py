@@ -238,7 +238,7 @@ class HtmlExporter(ExporterBase):
         # print(audio_tasks)
         logger.info('解析图片')
         # 使用多进程，导出所有图片
-        batch_decode_image_multiprocessing(Me().xor_key, image_tasks)
+        batch_decode_image_multiprocessing(Me().xor_key, image_tasks, Me().image_aes_key)
         print('开始复制文件')
         logger.info(f'开始复制{len(video_tasks + file_tasks)}')
         # 使用多线程，复制文件、视频到导出文件夹

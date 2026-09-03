@@ -120,6 +120,12 @@ class ExportMixin:
         # 按当前账号分区（utils._scoped_output_dir），避免换账号后导出混目录
         output_dir = self._scoped_output_dir()
 
+        if fmt in ('HTML', 'XLSX'):
+            from memoir.model.contact import Me
+            if not Me().image_aes_key:
+                self.log("  提示: 未配置图片密钥，V2 加密图片无法解密 — "
+                         "微信里点开几张图片 → 运行 tools/wx_key/wx_key.exe → 点「图片密钥」，再重新解密/导出")
+
         scribe = scribe_cls(
             self.database,
             contact,

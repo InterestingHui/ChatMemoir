@@ -33,7 +33,11 @@ AES_KEY_MAP = {
 }
 
 
-def get_aes_key(header):
+def get_aes_key(header, dynamic_key=None):
+    """V1 密钥全局固定；V2 密钥是每账号动态的（仅查看图片时驻留微信内存，
+    由 wx_key 工具提取）。dynamic_key 为空时退回内置映射（老账号数据）。"""
+    if header[:6] == b'\x07\x08V2\x08\x07' and dynamic_key:
+        return dynamic_key if isinstance(dynamic_key, bytes) else bytes.fromhex(dynamic_key)
     return AES_KEY_MAP.get(header[:6], b'')
 
 
@@ -66,13 +70,14 @@ def get_code(dat_read):
         return -1, -1
 
 
-def decode_dat(xor_key: int, file_path, out_path, dst_name='') -> str | bytes:
+def decode_dat(xor_key: int, file_path, out_path, dst_name='', aes_key=None) -> str | bytes:
     """
     解密文件，并生成图片
     @param file_path: 输入文件路径
     @param out_path: 输出文件文件夹
     @param dst_name: 输出文件名
     :param xor_key: 异或加密密钥
+    :param aes_key: V2 图片动态 AES 密钥（hex str 或 bytes，wx_key 提取）
     """
     if not os.path.exists(file_path) or os.path.isdir(file_path):
         return ''
@@ -85,7 +90,7 @@ def decode_dat(xor_key: int, file_path, out_path, dst_name='') -> str | bytes:
         header = file_in.read(0xf)
     if is_v4_image(header):
         # 微信4.0
-        return decode_dat_v4(xor_key, file_path, out_path, dst_name)
+        return decode_dat_v4(xor_key, file_path, out_path, dst_name, aes_key)
 
     with open(file_path, 'rb') as file_in:
         header = file_in.read(2)
@@ -197,13 +202,14 @@ def get_image_type(data: bytes) -> str:
         return 'bin'  # 未知类型，返回二进制
 
 
-def decode_dat_v4(xor_key: int, file_path, out_path, dst_name='') -> str | bytes:
+def decode_dat_v4(xor_key: int, file_path, out_path, dst_name='', aes_key=None) -> str | bytes:
     """
     适用于微信4.0图片.dat，解密文件，并生成图片
     :param xor_key: int 异或密钥
     :param file_path: dat文件路径
     :param out_path: 输出文件夹
     :param dst_name: 输出文件名，默认为输入文件名
+    :param aes_key: V2 图片动态 AES 密钥（hex str 或 bytes，wx_key 提取）
     :return:
     """
 
@@ -223,7 +229,7 @@ def decode_dat_v4(xor_key: int, file_path, out_path, dst_name='') -> str | bytes
         padding_length = 16 - (len(encrypted_data) % 16)
         encrypted_data += b'\x00' * padding_length
 
-    aes_key = get_aes_key(header)
+    aes_key = get_aes_key(header, aes_key)
 
     # 初始化AES解密器（ECB模式）
     cipher = AES.new(aes_key, AES.MODE_ECB)
@@ -321,10 +327,11 @@ def decode_wrapper(tasks):
     return decode_dat(*tasks)
 
 
-def batch_decode_image_multiprocessing(xor_key, file_infos: List[Tuple[str, str, str]]):
+def batch_decode_image_multiprocessing(xor_key, file_infos: List[Tuple[str, str, str]], aes_key=None):
     """
 
     :param xor_key: 异或加密密钥
+    :param aes_key: V2 图片动态 AES 密钥（hex str，wx_key 提取）
     :param file_infos: 文件信息列表
     item: [input_path: 输入图片路径
             output_dir: 输出图片文件夹
@@ -339,7 +346,7 @@ def batch_decode_image_multiprocessing(xor_key, file_infos: List[Tuple[str, str,
         return [lst[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n)]
 
     with ProcessPoolExecutor(max_workers=10) as executor:
-        tasks = [(xor_key, file_path, out_path, file_name) for file_path, out_path, file_name in file_infos]
+        tasks = [(xor_key, file_path, out_path, file_name, aes_key) for file_path, out_path, file_name in file_infos]
         # print(len(split_list(tasks, 10)), '总任务数', len(file_infos))
         results = list(executor.map(decode_wrapper, tasks, chunksize=200))  # 使用顶层定义的函数
     return results

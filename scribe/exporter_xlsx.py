@@ -245,7 +245,7 @@ class ExcelExporter(ExporterBase):
             elif type_ == MessageType.MergedMessages:
                 parser_merged(message)
         # 使用多进程，导出所有图片
-        batch_decode_image_multiprocessing(Me().xor_key, image_tasks)
+        batch_decode_image_multiprocessing(Me().xor_key, image_tasks, Me().image_aes_key)
 
         # 使用多线程，复制文件、视频到导出文件夹
         copy_files(video_tasks + file_tasks)

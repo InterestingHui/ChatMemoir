@@ -158,13 +158,15 @@ class Me:
         self.nickname = self.name
         self.remark = self.nickname
         self.xor_key = 0
+        self.image_aes_key = ''  # V2 图片动态 AES 密钥（wx_key 提取，hex str）
 
     def to_json(self) -> dict:
         return {
             'username': self.uid,
             'nickname': self.name,
             'data_dir': self.data_dir,
-            'xor_key': self.xor_key
+            'xor_key': self.xor_key,
+            'image_aes_key': self.image_aes_key
         }
 
     def load_from_json(self, json_file):
@@ -179,8 +181,16 @@ class Me:
                 # this fallback, Me().data_dir stays empty and image/file/video
                 # path resolution in manager_v4 fails silently — exports render
                 # text but all media is missing.
-                self.data_dir = dic.get('data_dir', '') or dic.get('wx_dir', '')
-                self.xor_key = dic.get('xor_key', '')
+                raw_dir = dic.get('data_dir', '') or dic.get('wx_dir', '')
+                # WSL: info.json 记录的是 Windows 路径（C:\...），Linux 侧消费方
+                # （图片/文件/视频/语音路径拼接）需要 /mnt/c 形式。在这里统一翻译，
+                # 所有下游一次修好；Windows 运行不受影响。
+                import sys as _sys
+                if _sys.platform != 'win32' and re.match(r'^[A-Za-z]:[\\/]', raw_dir):
+                    raw_dir = f'/mnt/{raw_dir[0].lower()}' + raw_dir[2:].replace('\\', '/')
+                self.data_dir = raw_dir
+                self.xor_key = dic.get('xor_key', 0) or 0
+                self.image_aes_key = dic.get('image_aes_key', '') or ''
 
     def save_to_json(self, json_file):
         with open(json_file, 'w', encoding='utf-8') as f:
