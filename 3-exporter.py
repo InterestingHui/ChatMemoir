@@ -77,13 +77,29 @@ def batch_export():
     database = conn.get_interface()  # 获取数据库接口
 
     contacts = database.get_contacts()  # 查找某个联系人
+
+    # 语音转文字：尽力回填（读已有 Audio2Text.db 缓存；更多转写请单独跑
+    # voice2text_batch.py）。失败不阻塞导出。
+    import os as _os
+    try:
+        from voice2text_batch import run as _v2t_run
+        import argparse as _argparse
+        _v2t_args = _argparse.Namespace(
+            uid=None, model='small', limit=0,
+            jsonl=_os.path.join(output_dir, 'voice_ledger.jsonl'),
+            db=_os.path.join(db_dir, 'Audio2Text.db'),
+            db_dir=db_dir, smoke=False)
+        _v2t_run(_v2t_args)
+    except Exception as _e:
+        print(f'[voice2text] 回填跳过: {_e}')
+
     for contact in contacts:
         scribe = HtmlExporter(
             database,
             contact,
             output_dir=output_dir,
             type_=FileType.HTML,
-            message_types={MessageType.Text, MessageType.Image, MessageType.LinkMessage},  # 要导出的消息类型，默认全导出
+            message_types=None,  # 要导出的消息类型，None=全部（含语音/视频/文件）
             time_range=['2020-01-01 00:00:00', '2035-03-12 00:00:00'],  # 要导出的日期范围，默认全导出
             group_members=None  # 指定导出群聊里某个或者几个群成员的聊天记录
         )

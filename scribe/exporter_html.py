@@ -181,6 +181,10 @@ class HtmlExporter(ExporterBase):
                 message.path = f'./video/{message.str_time[:7]}/{message.file_name}.{ext}'
             elif type_ == MessageType.Audio:
                 message.set_file_name()
+                if not message.audio_text:
+                    # Fallback placeholder for un-transcribed voice: ensures it's visible in copy/extract,
+                    # instead of leaving only a player and silently losing content when copied.
+                    message.audio_text = '[Voice not transcribed: text missing, please listen to the recording]'
                 audio_tasks.append(
                     (
                         self.database.get_media_buffer(message.server_id, self.contact.is_public()),

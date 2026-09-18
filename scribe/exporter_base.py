@@ -535,6 +535,10 @@ def get_ffmpeg_path():
     ffmpeg_path = os.path.join(base_dir, 'scribe', 'resources', 'ffmpeg.exe')
     if not os.path.exists(ffmpeg_path):
         ffmpeg_path = os.path.join(base_dir, 'ffmpeg.exe')
+    if not os.path.exists(ffmpeg_path):
+        # WSL/Linux: fall back to system ffmpeg (voice export needs it to produce mp3)
+        import shutil as _shutil
+        ffmpeg_path = _shutil.which('ffmpeg') or ffmpeg_path
     return ffmpeg_path
 
 
