@@ -243,6 +243,11 @@ class ScreenMixin:
         self._btn_batch_export = ttk.Button(btn_row, text="批量导出全部",
                                             command=self._on_batch_export)
         self._btn_batch_export.pack(side="left", padx=(6, 0))
+        # 一键转写：把当前选中联系人的语音批量转成文字（写入 Audio2Text.db，
+        # 导出的 HTML/TXT 等会自动带上语音文字）
+        self._btn_transcribe = ttk.Button(btn_row, text="一键转写",
+                                          command=self._on_transcribe)
+        self._btn_transcribe.pack(side="left", padx=(6, 0))
 
         self._export_progress = ttk.Progressbar(btn_row, mode="determinate", length=200)
         self._export_status = ttk.Label(btn_row, text="", foreground=TEXT_SECONDARY, style="Card.TLabel")
