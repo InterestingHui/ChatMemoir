@@ -42,9 +42,10 @@ class ThreadMixin:
         self.running = flag
         state = "disabled" if flag else "normal"
         self._btn_export.configure(state=state)
-        btn_transcribe = getattr(self, '_btn_transcribe', None)
-        if btn_transcribe is not None:
-            btn_transcribe.configure(state=state)
+        for attr in ('_btn_transcribe', '_btn_transcribe_all', '_btn_batch_export'):
+            btn = getattr(self, attr, None)
+            if btn is not None:
+                btn.configure(state=state)
 
     def run_task(self, target, on_done=None, on_error=None):
         """后台任务 + UI 回调"""

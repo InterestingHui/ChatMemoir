@@ -91,7 +91,7 @@ class ExportMixin:
                     contact,
                     output_dir=output_dir,
                     type_=FileType.HTML,
-                    message_types={MessageType.Text, MessageType.Image, MessageType.LinkMessage},
+                    message_types=None,  # 全类型：None=全部（含语音/视频/文件），语音带缓存文字
                     time_range=time_range,
                     progress_callback=lambda pct: self._ui_call(lambda p=pct: self.set_progress(int(p * 100))),
                 )

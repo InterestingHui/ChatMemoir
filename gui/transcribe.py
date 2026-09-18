@@ -143,11 +143,13 @@ class TranscribeMixin:
             messagebox.showwarning(
                 "一键转写", summary["msg"] +
                 "\n\n失败条目未写入缓存（台账 data/voice_ledger.jsonl 有原因），重跑可重试。")
-        elif summary["total"] == 0:
+            return
+        if summary["total"] == 0:
             messagebox.showinfo("一键转写", summary["msg"])
-        else:
-            messagebox.showinfo("一键转写", summary["msg"] +
-                                "\n\n现在导出 HTML/TXT，语音下方就会带上文字。")
+            return
+        if messagebox.askyesno(
+                "一键转写", summary["msg"] + "\n\n现在立即导出该联系人的聊天记录吗？"):
+            self._export_after_transcribe()
 
     def _on_contact_select_refresh(self):
         """重新选中当前联系人以刷新详情面板（不动搜索框）。"""
@@ -161,3 +163,161 @@ class TranscribeMixin:
                          f"/{self.contact_voice_counts.get(c.uid, 0)}")
         except Exception:
             pass
+
+
+    # ── 全库转写 ─────────────────────────────────────────
+
+    def _on_transcribe_all(self):
+        """把库里所有联系人的语音全部转写（增量），完成后可联动批量导出。"""
+        if self.running:
+            return
+        if not self.db_dir_actual:
+            messagebox.showwarning("提示", "请先解密数据库")
+            return
+        try:
+            import numpy  # noqa: F401
+            import pysilk  # noqa: F401
+            import whisper  # noqa: F401
+        except ImportError:
+            messagebox.showinfo(
+                "提示",
+                "语音转文字功能需要安装额外依赖（WSL 内执行）:\n"
+                "pip install openai-whisper pysilk numpy\n"
+                "安装后重启 GUI 即可使用。")
+            return
+
+        total_voices = sum(self.contact_voice_counts.values())
+        if total_voices == 0:
+            messagebox.showinfo("全库转写", "库里没有语音消息")
+            return
+        if not messagebox.askyesno(
+                "全库转写",
+                f"将对全部联系人的语音执行转写（增量，已有文字的自动跳过）。\n"
+                f"语音总量约 {total_voices} 条，CPU 转写约 0.6-0.9 条/秒，"
+                f"耗时长，可随时关闭 GUI（已完成部分已入库，重开续跑）。\n\n继续？"):
+            return
+        self.run_task(
+            self._do_transcribe_all,
+            on_done=lambda s: self._after_transcribe_all(s),
+        )
+
+    def _do_transcribe_all(self):
+        import glob
+        import hashlib
+        import sqlite3
+        import time
+        import whisper
+
+        self.set_status("全库转写: 加载 Whisper 模型...")
+        model = whisper.load_model("small")
+
+        db_dir = self.db_dir_actual
+        msg_dir = os.path.join(db_dir, "message")
+        sqlite3_mod = __import__("sqlite3")
+        media_conn = sqlite3_mod.connect(os.path.join(msg_dir, "media_0.db"))
+        a2t_conn = sqlite3_mod.connect(os.path.join(db_dir, "Audio2Text.db"))
+        a2t_conn.execute("""CREATE TABLE IF NOT EXISTS Audio2Text (
+            ID INTEGER PRIMARY KEY, msgSvrId INTEGER UNIQUE, Text TEXT NOT NULL)""")
+        a2t_conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_id ON Audio2Text (msgSvrId)")
+        a2t_conn.commit()
+        existing = set(r[0] for r in a2t_conn.execute("SELECT msgSvrId FROM Audio2Text").fetchall())
+
+        # uid 解析表（md5 -> uid），沿用 contacts.py 的思路
+        tbl_to_uid = {}
+        for contact in self.contacts:
+            tbl_to_uid[f"Msg_{hashlib.md5(contact.uid.encode()).hexdigest()}"] = contact
+
+        ledger = os.path.join(BASE, "data", "voice_ledger.jsonl")
+        ok_n = empty_n = fail_n = 0
+        scanned = 0
+        done_flag = {"stop": False}
+
+        for f in sorted(glob.glob(os.path.join(msg_dir, "message_*.db"))):
+            if done_flag["stop"]:
+                break
+            try:
+                conn = sqlite3_mod.connect(f)
+                tables = [r[0] for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+                for tbl in tables:
+                    if not tbl.startswith("Msg_"):
+                        continue
+                    contact = tbl_to_uid.get(tbl)
+                    uid = contact.uid if contact else tbl[4:]
+                    try:
+                        vids = [r[0] for r in conn.execute(
+                            f"SELECT server_id FROM [{tbl}] WHERE local_type=34").fetchall()]
+                    except sqlite3_mod.Error:
+                        continue
+                    for sid in vids:
+                        if sid in existing:
+                            continue
+                        scanned += 1
+                        status, text, segments, duration, err = transcribe_one(
+                            model, media_conn, sid)
+                        if ledger:
+                            append_ledger(ledger, {
+                                "msgSvrId": sid, "uid": uid, "create_time": "",
+                                "duration_sec": round(duration, 2), "transcribe_sec": 0,
+                                "model": "small", "status": status, "text": text,
+                                "segments": segments, "error": err,
+                                "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                            })
+                        if status == STATUS_OK:
+                            a2t_conn.execute(
+                                "INSERT OR IGNORE INTO Audio2Text (msgSvrId, Text) VALUES (?, ?)",
+                                [sid, text])
+                            a2t_conn.commit()
+                            ok_n += 1
+                        elif status == STATUS_EMPTY:
+                            a2t_conn.execute(
+                                "INSERT OR IGNORE INTO Audio2Text (msgSvrId, Text) VALUES (?, ?)",
+                                [sid, ""])
+                            a2t_conn.commit()
+                            empty_n += 1
+                        else:
+                            fail_n += 1
+                        if scanned % 10 == 0:
+                            self.set_status(
+                                f"全库转写: 已转 {scanned}  成功={ok_n} 空={empty_n} 失败={fail_n}")
+                conn.close()
+            except sqlite3_mod.Error:
+                continue
+
+        media_conn.close()
+        a2t_conn.close()
+        return {"ok": ok_n, "empty": empty_n, "failed": fail_n, "total": scanned,
+                "msg": f"全库转写完成: 新转写 {scanned} 条（成功 {ok_n}、空 {empty_n}、失败 {fail_n}）"}
+
+    def _after_transcribe_all(self, summary):
+        self.set_status(summary["msg"])
+        try:
+            self._compute_stats()
+        except Exception:
+            pass
+        parts = [summary["msg"]]
+        if summary["failed"]:
+            parts.append(f"失败 {summary['failed']} 条未入缓存（台账有原因），重跑可重试。")
+        if summary["total"] == 0:
+            parts.append("所有语音都已有文字。")
+        parts.append("\n\n是否立即批量导出全部联系人的 HTML（语音将带文字）？")
+        if messagebox.askyesno("全库转写", "\n".join(parts)):
+            self._batch_export_after_transcribe()
+
+    def _export_after_transcribe(self):
+        """转写完成后联动导出当前联系人（复用导出 mixin）。"""
+        if self.running or not self.selected_contact:
+            return
+        self._on_export()
+
+    def _batch_export_after_transcribe(self):
+        """转写完成后联动批量导出（复用导出 mixin，跳过二次确认）。"""
+        if self.running or not self.database:
+            return
+        self.set_status(f"批量导出中 (0/{len(self.contacts)})...")
+        self._ui_call(self.start_export_progress)
+        self.run_task(
+            self._do_batch_export,
+            on_done=lambda d: self._on_export_done(d),
+            on_error=lambda e: self._on_export_error(e),
+        )

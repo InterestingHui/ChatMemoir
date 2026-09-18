@@ -248,6 +248,10 @@ class ScreenMixin:
         self._btn_transcribe = ttk.Button(btn_row, text="一键转写",
                                           command=self._on_transcribe)
         self._btn_transcribe.pack(side="left", padx=(6, 0))
+        # 全库转写：把所有联系人的语音批量转成文字（挂机跑，增量可续）
+        self._btn_transcribe_all = ttk.Button(btn_row, text="全库转写",
+                                              command=self._on_transcribe_all)
+        self._btn_transcribe_all.pack(side="left", padx=(6, 0))
 
         self._export_progress = ttk.Progressbar(btn_row, mode="determinate", length=200)
         self._export_status = ttk.Label(btn_row, text="", foreground=TEXT_SECONDARY, style="Card.TLabel")
