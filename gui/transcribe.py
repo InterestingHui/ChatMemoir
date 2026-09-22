@@ -56,7 +56,58 @@ class TranscribeMixin:
             on_done=lambda summary: self._after_transcribe(summary, name),
         )
 
+    def _count_untranscribed(self, uid, time_range=None):
+        """快速统计联系人（可选时间范围）内未转写的语音条数——只查库不加载模型。"""
+        import glob
+        import hashlib
+        import sqlite3
+        import time as _time
+        if not getattr(self, 'db_dir_actual', None):
+            return 0
+        msg_dir = os.path.join(self.db_dir_actual, "message")
+        a2t_path = os.path.join(self.db_dir_actual, "Audio2Text.db")
+        existing = set()
+        if os.path.exists(a2t_path):
+            conn = sqlite3.connect(a2t_path)
+            existing = set(r[0] for r in conn.execute("SELECT msgSvrId FROM Audio2Text").fetchall())
+            conn.close()
+        tbl = f"Msg_{hashlib.md5(uid.encode()).hexdigest()}"
+        t0 = t1 = None
+        try:
+            if time_range and time_range[0]:
+                t0 = _time.mktime(_time.strptime(time_range[0], "%Y-%m-%d %H:%M:%S"))
+            if time_range and len(time_range) > 1 and time_range[1]:
+                t1 = _time.mktime(_time.strptime(time_range[1], "%Y-%m-%d %H:%M:%S"))
+        except ValueError:
+            pass
+        cond = "WHERE local_type=34"
+        params = []
+        if t0 is not None:
+            cond += " AND create_time>=?"
+            params.append(int(t0))
+        if t1 is not None:
+            cond += " AND create_time<=?"
+            params.append(int(t1))
+        pending = 0
+        for f in sorted(glob.glob(os.path.join(msg_dir, "message_*.db"))):
+            try:
+                conn = sqlite3.connect(f)
+                tables = [r[0] for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+                if tbl in tables:
+                    vids = [r[0] for r in conn.execute(
+                        f"SELECT server_id FROM [{tbl}] {cond}", params).fetchall()]
+                    pending += sum(1 for v in vids if v not in existing)
+                conn.close()
+            except sqlite3.Error:
+                continue
+        return pending
+
     def _do_transcribe(self, uid):
+        return self._do_transcribe_range(uid, None)
+
+    def _do_transcribe_range(self, uid, time_range=None):
+        """转写联系人语音；time_range=['YYYY-MM-DD HH:MM:SS', ...] 时只转范围内的语音。"""
         import whisper
 
         self.set_status("加载 Whisper 模型（首次约 10 秒）...")
@@ -73,19 +124,33 @@ class TranscribeMixin:
 
         existing = set(r[0] for r in a2t_conn.execute("SELECT msgSvrId FROM Audio2Text").fetchall())
 
-        # 目标联系人的全部语音 server_id（跨 message_?.db 分库）
+        # 目标联系人的语音 server_id（跨 message_*.db 分库；可选时间范围过滤）
         import glob
         import hashlib
         import sqlite3
+        import time as _time
         tbl = f"Msg_{hashlib.md5(uid.encode()).hexdigest()}"
+        t0 = t1 = None
+        if time_range and time_range[0]:
+            t0 = _time.mktime(_time.strptime(time_range[0], "%Y-%m-%d %H:%M:%S"))
+        if time_range and len(time_range) > 1 and time_range[1]:
+            t1 = _time.mktime(_time.strptime(time_range[1], "%Y-%m-%d %H:%M:%S"))
+        cond = "WHERE local_type=34"
+        params = []
+        if t0 is not None:
+            cond += " AND create_time>=?"
+            params.append(int(t0))
+        if t1 is not None:
+            cond += " AND create_time<=?"
+            params.append(int(t1))
         voice_ids = []
-        for f in sorted(glob.glob(os.path.join(msg_dir, "message_?.db"))):
+        for f in sorted(glob.glob(os.path.join(msg_dir, "message_*.db"))):
             conn = sqlite3.connect(f)
             tables = [r[0] for r in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
             if tbl in tables:
                 voice_ids.extend(r[0] for r in conn.execute(
-                    f"SELECT server_id FROM [{tbl}] WHERE local_type=34").fetchall())
+                    f"SELECT server_id FROM [{tbl}] {cond}", params).fetchall())
             conn.close()
 
         todo = [s for s in voice_ids if s not in existing]

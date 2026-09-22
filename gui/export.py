@@ -39,6 +39,22 @@ class ExportMixin:
         self._config["output_dir"] = self._output_dir.get()
         _save_config(self._config)
 
+        # AI 整理 HTML：检查时间范围内未转写语音，询问是否先转写
+        if fmt == "AI 整理 HTML":
+            pending = self._count_untranscribed(self.selected_contact.uid, time_range)
+            if pending > 0:
+                minutes = max(1, round(pending / 45))
+                if not messagebox.askyesno(
+                        "AI 整理导出",
+                        f"该时间范围有 {pending} 条语音还没有转成文字。\n"
+                        f"先转写（约 {minutes} 分钟）后导出，语音内容才会进入整理稿。\n\n"
+                        f"立即转写并导出？\n（选“否”则直接导出，未转写语音显示占位）"):
+                    self._transcribe_first = False
+                else:
+                    self._transcribe_first = True
+            else:
+                self._transcribe_first = False
+
         name = (self.selected_contact.remark or self.selected_contact.nickname
                 or self.selected_contact.uid)
         self.set_status(f"正在导出 {name} ({fmt})...")
@@ -103,7 +119,7 @@ class ExportMixin:
 
     def _do_export(self, fmt, time_range):
         from scribe.config import FileType
-        from scribe import (TxtExporter, HtmlExporter, DocxExporter,
+        from scribe import (TxtExporter, HtmlExporter, DocxExporter, AiHtmlExporter,
                             MarkdownExporter, ExcelExporter, AiTxtExporter)
 
         fmt_map = {
@@ -113,12 +129,20 @@ class ExportMixin:
             "DOCX": (FileType.DOCX, DocxExporter),
             "XLSX": (FileType.XLSX, ExcelExporter),
             "AI-TXT": (FileType.AI_TXT, AiTxtExporter),
+            "AI 整理 HTML": (FileType.AI_HTML, AiHtmlExporter),
         }
 
         file_type, scribe_cls = fmt_map[fmt]
         contact = self.selected_contact
         # 按当前账号分区（utils._scoped_output_dir），避免换账号后导出混目录
         output_dir = self._scoped_output_dir()
+
+        # AI 整理 HTML：先转写该时间范围内未转写的语音（用户已在 _on_export 确认）
+        if fmt == "AI 整理 HTML" and getattr(self, '_transcribe_first', False):
+            try:
+                self._do_transcribe_range(contact.uid, time_range)
+            except Exception as e:
+                self.log(f"  语音转写失败（导出继续，未转写语音将显示占位）: {e}")
 
         if fmt in ('HTML', 'XLSX'):
             from memoir.model.contact import Me
@@ -135,6 +159,10 @@ class ExportMixin:
             time_range=time_range,
             progress_callback=lambda pct: self._ui_call(lambda: self.set_progress(int(pct * 100))),
         )
+        if hasattr(self, '_config'):
+            scribe.gui_config = self._config
+        if fmt == "AI 整理 HTML":
+            scribe.status_callback = lambda m: self._ui_call(lambda: self.set_status(m))
         scribe.start()
         return output_dir
 

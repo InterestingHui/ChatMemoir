@@ -28,6 +28,7 @@ class FileType(Enum):
     PUBLIC_TO_DOCX = 21
     PUBLIC_TO_MD = 22
     MARKDOWN = 23
+    AI_HTML = 24
 
 
 

@@ -203,7 +203,7 @@ class ScreenMixin:
         fmt_row = ttk.Frame(export_card, style="Card.TFrame")
         fmt_row.pack(fill="x", pady=2)
         ttk.Label(fmt_row, text="导出格式:", width=10, anchor="e", style="Card.TLabel").pack(side="left")
-        self._export_fmt = ttk.Combobox(fmt_row, values=["HTML", "TXT", "Markdown", "DOCX", "XLSX", "AI-TXT"],
+        self._export_fmt = ttk.Combobox(fmt_row, values=["HTML", "TXT", "Markdown", "DOCX", "XLSX", "AI-TXT", "AI 整理 HTML"],
                                         state="readonly", width=14)
         self._export_fmt.pack(side="left", padx=(4, 0))
         self._export_fmt.set(self._config.get("export_format", "HTML"))
