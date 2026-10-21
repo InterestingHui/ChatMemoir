@@ -29,8 +29,8 @@
 ## 2. 克隆代码（一步到位）
 
 ```bat
-git clone https://github.com/InterestingHui/ChatMemoir.git %USERPROFILE%\ChatMemoir
-cd %USERPROFILE%\ChatMemoir
+git clone https://github.com/InterestingHui/ChatMemoir.git D:\lhui\ChatMemoir
+cd /d D:\lhui\ChatMemoir
 git log --oneline -3
 ```
 
