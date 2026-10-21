@@ -29,7 +29,7 @@ class CSVExporter(ExporterBase):
         filename = os.path.join(self.origin_path,f"{self.contact.remark}.csv")
         filename = get_new_filename(filename)
         columns = ['消息ID', '类型', '发送人', '时间', '内容', '备注', '昵称', '更多信息']
-        messages = self.database.get_messages(self.contact.uid, time_range=self.time_range)
+        messages = self.get_export_messages()
         total_steps = len(messages)
         # 写入CSV文件
         with open(filename, mode='w', newline='', encoding='utf-8-sig') as file:

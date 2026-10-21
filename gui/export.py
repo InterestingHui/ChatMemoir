@@ -31,11 +31,13 @@ class ExportMixin:
         if time_start or time_end:
             time_range = [time_start or "2000-01-01 00:00:00",
                           time_end or "2099-12-31 23:59:59"]
+        msg_limit = self._parse_msg_limit(getattr(self, '_msg_limit', None))
 
         # 记忆设置
         self._config["export_format"] = fmt
         self._config["time_start"] = time_start
         self._config["time_end"] = time_end
+        self._config["msg_limit"] = getattr(self._msg_limit, 'get', lambda: "最近 50 条")()
         self._config["output_dir"] = self._output_dir.get()
         _save_config(self._config)
 
@@ -57,14 +59,26 @@ class ExportMixin:
 
         name = (self.selected_contact.remark or self.selected_contact.nickname
                 or self.selected_contact.uid)
+        limit_note = f"，最近 {msg_limit} 条" if msg_limit else "，全部"
         self.set_status(f"正在导出 {name} ({fmt})...")
-        self.log(f"开始导出: {name} [{fmt}] → {self._scoped_output_dir()}")
+        self.log(f"开始导出: {name} [{fmt}]{limit_note} → {self._scoped_output_dir()}")
         self._ui_call(self.start_export_progress)
         self.run_task(
-            lambda: self._do_export(fmt, time_range),
+            lambda: self._do_export(fmt, time_range, msg_limit),
             on_done=lambda d: self._on_export_done(d),
             on_error=lambda e: self._on_export_error(e),
         )
+
+    @staticmethod
+    def _parse_msg_limit(combobox):
+        """把下拉框选项解析成条数：'最近 50 条' -> 50，'全部'/其他 -> None。"""
+        if combobox is None:
+            return None
+        text = combobox.get()
+        for part in text.replace('＋', '+').split():
+            if part.isdigit():
+                return int(part)
+        return None
 
     def _on_batch_export(self):
         """Batch-export every contact as HTML. Mirrors run_export.py."""
@@ -117,7 +131,7 @@ class ExportMixin:
                 self.log(f"  跳过 {contact.uid}: {e}")
         return output_dir
 
-    def _do_export(self, fmt, time_range):
+    def _do_export(self, fmt, time_range, msg_limit=None):
         from scribe.config import FileType
         from scribe import (TxtExporter, HtmlExporter, DocxExporter, AiHtmlExporter,
                             MarkdownExporter, ExcelExporter, AiTxtExporter)
@@ -158,6 +172,7 @@ class ExportMixin:
             message_types=None,
             time_range=time_range,
             progress_callback=lambda pct: self._ui_call(lambda: self.set_progress(int(pct * 100))),
+            msg_limit=msg_limit,  # None=全部；否则只导出最近 N 条
         )
         if hasattr(self, '_config'):
             scribe.gui_config = self._config

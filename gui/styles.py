@@ -14,8 +14,12 @@ def configure_styles():
     style.configure("TFrame", background=BG)
     style.configure("TLabel", background=BG, foreground=TEXT_PRIMARY, font=("Microsoft YaHei UI", 9))
 
-    # 卡片
-    style.configure("Card.TFrame", background=CARD_BG, relief="solid", borderwidth=1)
+    # 卡片：Card.TFrame 为无边的白色内容底，用于卡片内部行容器 —
+    # 之前它自带 1px 实线边框，而它被用在每层嵌套行上，边框层层叠加
+    # 导致详情/导出区出现"横线套横线"的排版混乱。
+    style.configure("Card.TFrame", background=CARD_BG)
+    # CardBox.TFrame 才是带边框的卡片外壳，只给真正的外层卡片用（顶栏、日志框）
+    style.configure("CardBox.TFrame", background=CARD_BG, relief="solid", borderwidth=1)
     style.configure("Card.TLabel", background=CARD_BG, foreground=TEXT_PRIMARY)
     style.configure("CardTitle.TLabel", background=CARD_BG, foreground=TEXT_PRIMARY,
                     font=("Microsoft YaHei UI", 12, "bold"))

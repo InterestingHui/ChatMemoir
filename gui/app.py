@@ -96,3 +96,8 @@ class ChatMemoirApp(
         # 也不要任何光标补偿代码 — 光标问题的根因是 whiteglass 主题缺失
         # （已装 xcursor-themes）+ 上述窗口放置破坏，均已在环境/代码层根治。
         self._start_scheduler()
+        # ponytail: 启动即自动解析（旧流程每次点「开始解析」要等 5-8 分钟；
+        # 新鲜度门命中时秒进主屏，用户不该再手点一次）。config 里
+        # auto_start=false 可关掉（兜底入口）。
+        if self._config.get("auto_start", True):
+            self.root.after(150, self._on_start)

@@ -111,7 +111,7 @@ class ExcelExporter(ExporterBase):
         filename = os.path.join(self.origin_path, f"{self.contact.remark}.xlsx")
         filename = get_new_filename(filename)
         columns = ['消息ID', '类型', '发送人', '时间', '内容', '备注', '昵称', '更多信息']
-        messages = self.database.get_messages(self.contact.uid, time_range=self.time_range)
+        messages = self.get_export_messages()
         new_workbook = openpyxl.Workbook()
         new_sheet = new_workbook.create_sheet("聊天记录", 0)
         member_sheet = new_workbook.create_sheet("成员信息", 1)
@@ -316,7 +316,7 @@ class ExcelExporter(ExporterBase):
         filename = os.path.join(self.origin_path, f"{self.contact.remark}.xlsx")
         filename = get_new_filename(filename)
         columns = ['日期', '时间', '标题', '描述', '链接', '更多信息']
-        messages = self.database.get_messages(self.contact.uid, time_range=self.time_range)
+        messages = self.get_export_messages()
         new_workbook = openpyxl.Workbook()
         new_sheet = new_workbook.create_sheet("聊天记录", 0)
         new_sheet.append(columns)
@@ -358,7 +358,7 @@ class ExcelExporter(ExporterBase):
         filename = os.path.join(self.origin_path, f"{self.contact.remark}.xlsx")
         filename = get_new_filename(filename)
         columns = ['类型', '收款单位', '日期', '时间', '金额', '付款方式', '收单机构', '更多信息']
-        messages = self.database.get_messages(self.contact.uid, time_range=self.time_range)
+        messages = self.get_export_messages()
         new_workbook = openpyxl.Workbook()
         new_sheet = new_workbook.create_sheet("聊天记录", 0)
         new_sheet.append(columns)
@@ -417,7 +417,7 @@ class ExcelExporter(ExporterBase):
         filename = os.path.join(self.origin_path, f"{self.contact.remark}.xlsx")
         filename = get_new_filename(filename)
         columns = ['类型', '日期', '时间', '金额', '详细信息', '汇总', '备注', '更多信息']
-        messages = self.database.get_messages(self.contact.uid, time_range=self.time_range)
+        messages = self.get_export_messages()
         new_workbook = openpyxl.Workbook()
         new_sheet = new_workbook.create_sheet("聊天记录", 0)
         new_sheet.append(columns)
@@ -468,7 +468,7 @@ class ExcelExporter(ExporterBase):
         filename = os.path.join(self.origin_path, f"{self.contact.remark}.xlsx")
         filename = get_new_filename(filename)
         columns = ['日期', '排名', '步数', '当日冠军', '当日冠军步数', '更多信息']
-        messages = self.database.get_messages(self.contact.uid, time_range=self.time_range)
+        messages = self.get_export_messages()
         new_workbook = openpyxl.Workbook()
         new_sheet = new_workbook.create_sheet("聊天记录", 0)
         new_sheet.append(columns)

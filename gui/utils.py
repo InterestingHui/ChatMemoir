@@ -21,10 +21,21 @@ class UtilityMixin:
         self._update_adv_menu()
 
     def _on_open_db_dir(self):
-        """打开解密数据库目录"""
+        """打开解密数据库目录（本地镜像优先，旧 UNC 产物兜底）"""
+        import sys as _sys
+        target = None
         if self.db_dir_actual and os.path.exists(self.db_dir_actual):
+            target = self.db_dir_actual
+        elif _sys.platform == 'win32':
+            # db_dir_actual 失效时（如镜像被移动），按账号 uid 找本地镜像
+            mirror_root = self._local_mirror_root()
+            if mirror_root and os.path.isdir(mirror_root):
+                uids = [d for d in os.listdir(mirror_root) if os.path.isdir(os.path.join(mirror_root, d))]
+                if len(uids) == 1:
+                    target = os.path.join(mirror_root, uids[0], 'db_storage')
+        if target:
             try:
-                os.startfile(self.db_dir_actual)
+                os.startfile(target)
             except Exception:
                 pass
 

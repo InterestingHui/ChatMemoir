@@ -24,7 +24,7 @@ class AiTxtExporter(ExporterBase):
         safe_makedirs(origin_path)
         filename = os.path.join(origin_path, self.contact.remark + '_chat.txt')
         filename = get_new_filename(filename)
-        messages = self.database.get_messages(self.contact.uid, time_range=self.time_range)
+        messages = self.get_export_messages()
         total_steps = len(messages)
         # 创建一个默认字典，用于按日期分组
         grouped_messages = defaultdict(list)

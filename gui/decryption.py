@@ -13,6 +13,12 @@ class DecryptionMixin:
 
     def _on_start(self):
         """开始一键解密"""
+        # ponytail: 防重入 — 启动自动触发（app.py root.after）与用户手点
+        # 「开始解析」可能在加载屏上叠加；重复跑一遍解密纯属浪费，第二击
+        # 直接吞掉。
+        if getattr(self, '_state', '') == 'decrypting':
+            return
+        self._state = "decrypting"
         self._show_screen("loading")
         # ponytail: no marquee during scan phase. Earlier revision called
         # start(10) to bounce the block as an "alive" signal, but user
@@ -58,6 +64,108 @@ class DecryptionMixin:
                 continue
         return None
 
+    # ── 本地镜像（Windows pythonw @ UNC 项目场景）────────────
+    #
+    # ponytail: 为什么需要镜像 — GUI 由计划任务用 Windows pythonw 从
+    # \\wsl.localhost UNC 路径启动（9p 慢速通道）：
+    #   1) 解密产物写 UNC 极慢；旧方案在加载前还要把 3GB copytree 到
+    #      %TEMP%（每次启动重来一遍，又几分钟）；
+    #   2) UNC 上 SQLite 文件锁不稳（'database is locked'）。
+    # 两者都靠"解密直写本地盘"根治：镜像放 %LOCALAPPDATA%\ChatMemoir\<uid>
+    # （非 %TEMP%，不会被磁盘清理误删，跨启动复用），SQLite 直连本地路径。
+    # 加载后迁移期 <script_dir>/<uid> 的旧 UNC 产物仍在，手动回退可用。
+
+    @staticmethod
+    def _local_mirror_root():
+        """本地镜像根目录（Windows）。非 Windows 返回 None。"""
+        import sys as _sys
+        if _sys.platform != 'win32':
+            return None
+        base = os.environ.get('LOCALAPPDATA') or os.path.join(
+            os.environ.get('USERPROFILE', ''), 'AppData', 'Local')
+        if not base or not os.path.isdir(base):
+            return None
+        return os.path.join(base, 'ChatMemoir')
+
+    def _mirror_dir_for(self, uid):
+        """当前账号的本地镜像 db_storage 目录（不存在则 None）。"""
+        root = self._local_mirror_root()
+        if not root or not uid:
+            return None
+        d = os.path.join(root, uid, 'db_storage')
+        return d if os.path.isdir(d) else None
+
+    def _verify_passphrase_on(self, passphrase, db_path):
+        """单库 PBKDF2+HMAC 验证 passphrase（对齐 _try_passphrase_decrypt_refresh
+        第 3 步的算法）。返回 True/False/None（文件缺失等无法验证）。"""
+        import hashlib as _hl
+        import hmac as _hmac
+        import struct as _struct
+        KEY_SIZE, SALT_SIZE, PAGE_SIZE = 32, 16, 4096
+        IV_SIZE, HMAC_SIZE, AES_BLOCK = 16, 64, 16
+        if not os.path.exists(db_path):
+            return None
+        try:
+            with open(db_path, 'rb') as fh:
+                buf = fh.read(PAGE_SIZE)
+        except OSError:
+            return None
+        if len(buf) < PAGE_SIZE:
+            return None
+        salt = buf[:SALT_SIZE]
+        pp_bytes = bytes.fromhex(passphrase)
+        dk = _hl.pbkdf2_hmac('sha512', pp_bytes, salt, 256000, dklen=KEY_SIZE)
+        mac_salt = bytes(x ^ 0x3a for x in salt)
+        mac_key = _hl.pbkdf2_hmac('sha512', dk, mac_salt, 2, dklen=KEY_SIZE)
+        reserve = ((IV_SIZE + HMAC_SIZE + AES_BLOCK - 1) // AES_BLOCK) * AES_BLOCK
+        mac = _hmac.new(mac_key, buf[SALT_SIZE:PAGE_SIZE - reserve + IV_SIZE], _hl.sha512)
+        mac.update(_struct.pack('<I', 1))
+        off = PAGE_SIZE - reserve + IV_SIZE
+        return mac.digest() == buf[off:off + HMAC_SIZE]
+
+    def _try_fast_load_fresh_snapshot(self):
+        """新鲜度门（Windows 路径）：镜像足够新（落后实时数据 <10 分钟）时
+        直接返回镜像目录，跳过解密。返回 (db_dir or None, live_uid or None)。
+
+        快进条件（全部满足）：
+          1) 微信在登录（_fast_find_data_dir 找得到数据目录）→ 拿到实时
+             热库 mtime 作为"数据现在时刻"；
+          2) 镜像 db_storage/<info.json 的 mtime ≥ 数据时刻 - 10min；
+          3) 镜像里有完整的 contact.db。
+        不满足 → 返回 None，调用方走正常解密（解密完会刷新镜像 info.json），
+        下一轮（10 分钟内再点）就能秒进。"""
+        live = self._fast_find_data_dir()
+        if not live:
+            return None, None
+        uid, _data_dir, _nick = live
+        self.log(f"  微信在线: {uid}")
+        # 实时热库最新 mtime = "微信数据现在写到哪了"
+        now_marker = 0.0
+        try:
+            db_storage_src = os.path.join(_data_dir, 'db_storage')
+            for rel in ('session\\session.db', 'message\\message_0.db',
+                        'contact\\contact.db', 'message\\message_fts.db'):
+                try:
+                    m = os.path.getmtime(os.path.join(db_storage_src, *rel.split('\\')))
+                except OSError:
+                    continue
+                if m > now_marker:
+                    now_marker = m
+        except OSError:
+            return None, uid
+        if now_marker <= 0:
+            return None, uid
+        mirror = self._mirror_dir_for(uid)
+        if not mirror:
+            return None, uid
+        info_json = os.path.join(mirror, 'info.json')
+        if (os.path.exists(os.path.join(mirror, 'contact', 'contact.db'))
+                and os.path.exists(info_json)
+                and os.path.getmtime(info_json) >= now_marker - 10 * 60):
+            self.log(f"  本地镜像已是最新（10 分钟内），直接加载: {mirror}")
+            return mirror, uid
+        return None, uid
+
     def _auto_decrypt(self):
         """自动检测微信版本、提取密钥、解密数据库、加载联系人"""
         import sys as _sys
@@ -69,6 +177,25 @@ class DecryptionMixin:
         # 的平台差异当异常打进日志吓人 — 非 Windows 直接走三级回退，一行干净日志。
         if _sys.platform == 'win32':
             return self._auto_decrypt_live()
+        # ── 新鲜度门（WSL 侧，与 Windows 侧 _try_fast_load_fresh_snapshot 对称）──
+        self._db_version = 4
+        live_uid_gate, gate_mtime = self._detect_live_wechat_uid()
+        if live_uid_gate:
+            fresh = self._fresh_snapshot_dir(live_uid_gate, gate_mtime)
+            if fresh:
+                self.set_loading_status("已是最新数据，正在加载联系人...")
+                self.set_loading_progress(1, 1, "")
+                self.log(f"快照已是最新，直接加载: {fresh}")
+                conn = ArchiveConnection(fresh, 4)
+                self.database = conn.get_interface()
+                if self.database is None:
+                    raise RuntimeError(f"数据库初始化失败: {fresh}")
+                self.db_dir_actual = fresh
+                self._config['last_db_dir'] = fresh
+                _save_config(self._config)
+                self.contacts = list(self.database.get_contacts())
+                self.log(f"加载完成: {len(self.contacts)} 个联系人")
+                return fresh
         self.log("WSL 环境：跳过内存扫描，使用已存密钥增量刷新当前账号数据...")
         # 三级回退：① 历史 passphrase 本地直解（快，密钥未轮换时）→
         # ② Windows 管理员任务内存扫 key 重解（慢但万能）→ ③ 本地旧快照。
@@ -107,45 +234,218 @@ class DecryptionMixin:
         return db_dir
 
     def _auto_decrypt_live(self):
-        """实时解密: 扫描微信进程 → 提取密钥 → 解密数据库 → 加载联系人（仅 Windows）"""
-        import sys as _sys
+        """实时解密: 快速路径 = 新鲜度门 → wx_key 缓存 → 本地镜像增量解密。
+
+        ponytail: 提速重构 — 旧流程每次启动都：walk 整个微信账号目录（含
+        attach/ 海量附件，几十秒）→ 逐库 PBKDF2（~0.5s×30）→ 解密产物写
+        UNC（9p 慢）→ 加载前再把 3GB copytree 到 %TEMP%（每次重来）＝
+        用户点「开始解析」后要等 5-8 分钟。新流程：
+          1) 新鲜度门：镜像落后实时数据 <10min → 直接加载（秒进）；
+          2) 只扫 db_storage/（不碰 attach/）；
+          3) per-db key salt 缓存（keycache.json，salt 命中免 PBKDF2）；
+          4) 解密直写 %LOCALAPPDATA%/ChatMemoir/<uid>/db_storage 本地镜像，
+             SQLite 直连本地路径 — UNC 写和 %TEMP% 全量拷贝都消失。
+        旧 YARA/多级回退逻辑保留在 _auto_decrypt_live_full()（异常时兜底）。"""
         from memoir import Me, ArchiveConnection
         import json as _json
 
-        from memoir.decrypt import get_info_v4, get_info_v3
-        from memoir.decrypt import decrypt_v4, decrypt_v3
-
-        # 1. 检查管理员权限
+        # 1. 检查管理员权限（读微信进程内存定位数据目录需要）
         import ctypes as _ct
         if not _ct.windll.shell32.IsUserAnAdmin():
             self.log("请以管理员身份运行本程序")
             self.log("右键 ChatMemoir.exe → 以管理员身份运行")
             raise PermissionError("需要管理员权限才能读取微信进程内存")
 
-        # 2. 检查 wx_key 缓存，有缓存则走快速路径（跳过耗时的 YARA/偏移扫描）
+        # 2. 新鲜度门：镜像够新直接秒进
+        self._db_version = 4
+        fast_dir, live_uid_fast = self._try_fast_load_fresh_snapshot()
+        if fast_dir:
+            self.set_loading_status("已是最新数据，正在加载联系人...")
+            self.set_loading_progress(1, 1, "")
+            self.log(f"加载本地镜像: {fast_dir}")
+            conn = ArchiveConnection(fast_dir, 4)
+            self.database = conn.get_interface()
+            if self.database is None:
+                raise RuntimeError(f"数据库初始化失败: {fast_dir}")
+            self.db_dir_actual = fast_dir
+            self._config['last_db_dir'] = fast_dir
+            _save_config(self._config)
+            self.contacts = list(self.database.get_contacts())
+            self.log(f"加载完成: {len(self.contacts)} 个联系人")
+            return fast_dir
+
+        # 3. wx_key 缓存密钥（无缓存走完整兜底流程）
         wx_passphrase = self._read_wx_key_cache()
-        if wx_passphrase:
-            self.set_loading_status("正在定位微信数据目录...")
-            self.log("检测到 wx_key 密钥缓存，使用快速解密流程...")
-            fast_info = self._fast_find_data_dir()
-            if fast_info:
-                uid, data_dir, nick_name = fast_info
-                from memoir.decrypt.common import SessionInfo
-                si = SessionInfo()
-                si.uid = uid
-                si.data_dir = data_dir
-                si.nick_name = nick_name
-                si.key = None  # 触发 wx_key fallback
-                session_info_list = [si]
-                self._db_version = 4
+        if not wx_passphrase:
+            self.log("未找到 wx_key 缓存密钥，转完整扫描流程...")
+            return self._auto_decrypt_live_full()
+
+        # 4. 快速定位微信数据目录
+        self.set_loading_status("正在定位微信数据目录...")
+        self.log("检测到 wx_key 密钥缓存，使用快速解密流程...")
+        fast_info = self._fast_find_data_dir()
+        if not fast_info:
+            self.log("未找到已登录的微信进程")
+            self.log("请确认：1) 微信已打开  2) 已扫码登录  3) 以管理员身份运行本程序")
+            raise RuntimeError("未找到已登录的微信进程，请先打开微信并扫码登录")
+        uid, data_dir, nick_name = fast_info
+        self.log(f"微信账号: {nick_name or uid} ({uid})")
+
+        # 账号一致性：镜像账号 ≠ 当前登录账号 → 走兜底（含旧镜像迁移判断）
+        mirror_root = self._local_mirror_root()
+        mirror_uid_dir = os.path.join(mirror_root, uid) if mirror_root else None
+        if mirror_uid_dir:
+            mirror_info = os.path.join(mirror_uid_dir, 'db_storage', 'info.json')
+            if os.path.exists(mirror_info):
+                try:
+                    import json as _json_mi
+                    with open(mirror_info, 'r', encoding='utf-8') as f:
+                        mi = _json_mi.load(f)
+                    if mi.get('username') and mi['username'] != uid:
+                        self.log(f"  镜像属于账号 {mi['username']}，与当前 {uid} 不符，走完整流程")
+                        return self._auto_decrypt_live_full()
+                except Exception:
+                    pass
+
+        # 5. 收集 db_storage 下的 .db（不碰 attach/）
+        import hashlib as _hl
+        db_storage_src = os.path.join(data_dir, 'db_storage')
+        db_candidates = []
+        for root, dirs, files in os.walk(db_storage_src):
+            for fn in files:
+                if not fn.endswith('.db'):
+                    continue
+                fp = os.path.join(root, fn)
+                try:
+                    if os.path.getsize(fp) < 4096:
+                        continue
+                except OSError:
+                    continue
+                db_candidates.append((root, fn))
+        total = len(db_candidates)
+
+        # 6. per-db key 缓存（salt 命中免 PBKDF2）
+        keycache_path = (os.path.join(mirror_root, uid, 'keycache.json')
+                         if mirror_root else None)
+        keycache = {}
+        if keycache_path and os.path.exists(keycache_path):
+            try:
+                import json as _json_kc
+                with open(keycache_path, 'r', encoding='utf-8') as f:
+                    _kc = _json_kc.load(f)
+                keycache = _kc if isinstance(_kc, dict) else {}
+            except Exception:
+                keycache = {}
+        pp_bytes = bytes.fromhex(wx_passphrase)
+        key_map = {}
+        misses = []
+        for root, fn in db_candidates:
+            rel = os.path.join(os.path.relpath(root, db_storage_src), fn)
+            with open(os.path.join(root, fn), 'rb') as fh:
+                s = fh.read(16)
+            cached = keycache.get(rel) or {}
+            if cached.get('salt') == s.hex() and cached.get('key'):
+                key_map[rel] = cached['key']
             else:
-                session_info_list = []
+                misses.append((rel, s, fn))
+        if misses:
+            self.set_loading_status(f"正在派生数据库密钥（{len(misses)}/{total} 个新文件，每个约0.5s）...")
+            self.set_loading_progress(0, len(misses), "")
+            for i, (rel, s, fn) in enumerate(misses):
+                key_map[rel] = _hl.pbkdf2_hmac('sha512', pp_bytes, s, 256000, dklen=32).hex()
+                keycache[rel] = {'salt': s.hex(), 'key': key_map[rel]}
+                self.set_loading_progress(i + 1, len(misses), fn)
         else:
-            # 无缓存 — 走完整扫描流程（YARA + 偏移量 + multiprocessing）
-            self.set_loading_status("正在扫描微信进程...")
-            self.log("正在扫描微信 v4 进程 (Weixin.exe / WeChatAppEx.exe)...")
-            session_info_list = get_info_v4()
-            self._db_version = 4
+            self.log(f"  {total} 个库的 key 全部缓存命中，免 PBKDF2")
+        if keycache_path:
+            try:
+                import json as _json_kcw
+                os.makedirs(os.path.dirname(keycache_path), exist_ok=True)
+                with open(keycache_path, 'w', encoding='utf-8') as f:
+                    _json_kcw.dump(keycache, f, ensure_ascii=False)
+            except OSError:
+                pass
+
+        # 7. 解密直写本地镜像（增量；本地盘写 + 免 UNC + 免 %TEMP% 拷贝）
+        mirror_dir = (os.path.join(mirror_root, uid, 'db_storage')
+                      if mirror_root else os.path.join(self._script_dir, uid, 'db_storage'))
+        self.set_loading_status(f"正在解密 {uid} 的当前数据...")
+        self.set_loading_progress(0, 1, "")
+        from memoir.decrypt import decrypt_v4
+        total_done, failed = decrypt_v4.decrypt_db_files(
+            wx_passphrase, src_dir=db_storage_src, dest_dir=mirror_dir,
+            key_map=key_map, skip_existing=True,
+            progress_callback=self.set_loading_progress)
+        if failed:
+            self.log(f"  警告: {failed}/{total_done} 个数据库解密失败")
+        if not os.path.exists(os.path.join(mirror_dir, 'contact', 'contact.db')):
+            if total_done > 0 and failed == total_done and keycache_path and os.path.exists(keycache_path):
+                self.log("  密钥可能已轮换，清除缓存密钥（下次重新派生）")
+                try:
+                    os.remove(keycache_path)
+                except OSError:
+                    pass
+            self.log("  快速流程未能产出 contact.db，转完整扫描流程")
+            return self._auto_decrypt_live_full()
+
+        # 8. 刷新镜像 info.json（mtime = 新鲜度门依据；保留 xor_key 等导出依赖）
+        info = {}
+        for p in (os.path.join(mirror_dir, 'info.json'),
+                  os.path.join(self._script_dir, uid, 'db_storage', 'info.json'),
+                  os.path.join(self._script_dir, uid, 'info.json')):
+            if os.path.exists(p):
+                try:
+                    with open(p, 'r', encoding='utf-8') as f:
+                        info = _json.load(f)
+                    break
+                except Exception:
+                    continue
+        info.setdefault('username', uid)
+        info['nickname'] = info.get('nickname') or nick_name or uid
+        info['wx_dir'] = data_dir
+        info['data_dir'] = data_dir
+        if not info.get('xor_key'):
+            try:
+                from memoir.decrypt.decrypt_dat import get_decode_code_v4
+                info['xor_key'] = get_decode_code_v4(data_dir)
+            except Exception:
+                info['xor_key'] = 0
+        image_aes_key = self._read_wx_key_image_key()
+        if image_aes_key:
+            info['image_aes_key'] = image_aes_key
+        os.makedirs(mirror_dir, exist_ok=True)
+        with open(os.path.join(mirror_dir, 'info.json'), 'w', encoding='utf-8') as f:
+            _json.dump(info, f, ensure_ascii=False, indent=4)
+
+        db_dir = mirror_dir
+        self._config['last_db_dir'] = path_str = db_dir
+        _save_config(self._config)
+        self.log(f"解密完成: {db_dir}")
+
+        # 9. 加载联系人（本地路径直连）
+        self.set_loading_status("正在加载联系人...")
+        self.set_loading_progress(1, 1, "")
+        self.log("正在连接数据库...")
+        conn = ArchiveConnection(db_dir, 4)
+        self.database = conn.get_interface()
+        if self.database is None:
+            raise RuntimeError(f"数据库初始化失败: {db_dir}")
+        self.db_dir_actual = db_dir
+        self._config['last_db_dir'] = db_dir
+        _save_config(self._config)
+
+        self.log("正在加载联系人...")
+        self.contacts = list(self.database.get_contacts())
+        self.log(f"加载完成: {len(self.contacts)} 个联系人")
+        return db_dir
+
+    def _auto_decrypt_live_full(self):
+
+        # 2. 无快速路径可走 — 完整扫描流程（YARA + 偏移量 + multiprocessing）
+        self.set_loading_status("正在扫描微信进程...")
+        self.log("正在扫描微信 v4 进程 (Weixin.exe / WeChatAppEx.exe)...")
+        session_info_list = get_info_v4()
+        self._db_version = 4
 
         if not session_info_list and not wx_passphrase:
             self.set_loading_status("尝试 v3 微信进程...")
@@ -221,7 +521,12 @@ class DecryptionMixin:
                 me.uid = uid
                 me.name = session_info.nick_name
                 me.xor_key = get_decode_code_v4(session_info.data_dir)
-                output_dir = os.path.join(self._script_dir, uid)
+                # ponytail: 解密产物落本地镜像（%LOCALAPPDATA%）而非 UNC 项目
+                # 目录 — 免 9p 慢写 + 免加载前的 %TEMP% 全量拷贝。无镜像根
+                # （异常环境）才退回 <script_dir>/<uid> 旧布局。
+                _mirror_root_full = self._local_mirror_root()
+                output_dir = (os.path.join(_mirror_root_full, uid) if _mirror_root_full
+                              else os.path.join(self._script_dir, uid))
                 total, failed = decrypt_v4.decrypt_db_files(
                     key, src_dir=session_info.data_dir, dest_dir=output_dir,
                     key_map=getattr(session_info, 'key_map', None) or None,
@@ -399,12 +704,47 @@ class DecryptionMixin:
         # Affects users running the project from a WSL UNC root.
         connect_dir = db_dir
         if db_dir.startswith('\\\\') or db_dir.lower().startswith('//'):
-            import tempfile as _tf
+            # ponytail: 改用持久镜像而非 mkdtemp — 旧方案每次启动把 3GB
+            # copytree 到 %TEMP%（几分钟），且 %TEMP% 会被磁盘清理误删。
+            # %LOCALAPPDATA%\ChatMemoir\<uid> 跨启动复用：首次拷一次，
+            # 之后用 mtime 增量同步（只拷比镜像新的文件），秒级完成。
             import shutil as _sh
-            local_root = _tf.mkdtemp(prefix='chatmemoir_gui_')
-            local_dir = _sh.copytree(db_dir, os.path.join(local_root, 'db_storage'))
-            self.log(f"  UNC 路径 SQLite 锁不稳，已复制到本地: {local_dir}")
-            connect_dir = local_dir
+            mirror_root = self._local_mirror_root()
+            if mirror_root:
+                uid_name = None
+                for seg in db_dir.replace('/', '\\').split('\\'):
+                    if seg.startswith('wxid_') or seg.startswith('gh_'):
+                        uid_name = '_'.join(seg.split('_')[:-1]) if seg.count('_') > 1 else seg
+                        break
+                if not uid_name:
+                    uid_name = os.path.basename(os.path.dirname(db_dir.rstrip('\\/')))
+                mirror_dir = os.path.join(mirror_root, uid_name, 'db_storage')
+                os.makedirs(mirror_dir, exist_ok=True)
+                copied = skipped = 0
+                for root, dirs, files in os.walk(db_dir):
+                    rel = os.path.relpath(root, db_dir)
+                    dst_root = os.path.join(mirror_dir, rel) if rel != '.' else mirror_dir
+                    os.makedirs(dst_root, exist_ok=True)
+                    for fn in files:
+                        src_fp = os.path.join(root, fn)
+                        dst_fp = os.path.join(dst_root, fn)
+                        try:
+                            if (os.path.exists(dst_fp)
+                                    and os.path.getmtime(dst_fp) >= os.path.getmtime(src_fp)):
+                                skipped += 1
+                                continue
+                            _sh.copy2(src_fp, dst_fp)
+                            copied += 1
+                        except OSError:
+                            continue
+                self.log(f"  UNC 路径 SQLite 锁不稳，已镜像到本地: {mirror_dir}（新增 {copied} 个文件，复用 {skipped} 个）")
+                connect_dir = mirror_dir
+            else:
+                import tempfile as _tf
+                local_root = _tf.mkdtemp(prefix='chatmemoir_gui_')
+                local_dir = _sh.copytree(db_dir, os.path.join(local_root, 'db_storage'))
+                self.log(f"  UNC 路径 SQLite 锁不稳，已复制到本地: {local_dir}")
+                connect_dir = local_dir
         self.log("正在连接数据库...")
         conn = ArchiveConnection(connect_dir, self._db_version)
         self.database = conn.get_interface()
@@ -989,6 +1329,7 @@ class DecryptionMixin:
     def _on_decrypt_done(self, db_dir):
         """解密成功后切换到主屏"""
         import json as _json
+        self._state = "ready"
         self._loading_progress.stop()
         self._btn_cancel.pack_forget()
         # 更新账号信息（info.json 在 db_storage/ 下或其父目录，键名是 username）
@@ -1034,8 +1375,10 @@ class DecryptionMixin:
                     _f.write(f"--- traceback ---\n{e._gui_traceback}\n----\n")
         except Exception:
             pass
+        self._state = "startup"  # 复位防重入锁，允许重试
         self._loading_progress.stop()
         self._btn_cancel.pack_forget()
+        self._state = "startup"  # 复位防重入锁，允许重试
         # ponytail: prefer the worker-thread-captured traceback (e._gui_traceback);
         # _tb.format_exc() called here returns "NoneType: None" because the
         # except block in run_task has already exited by the time this runs.

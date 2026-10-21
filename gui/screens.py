@@ -51,6 +51,12 @@ class ScreenMixin:
                                      command=self._on_start)
         self._btn_start.configure(style="Start.TButton")
         self._btn_start.pack()
+        # ponytail: 正常情况启动即自动进入（app.py auto_start），此提示仅在
+        # 自动解析失败/被关闭时可见 — 告诉用户还有手动入口。
+        auto_note = ttk.Label(center, text="(启动时已自动解析；若未自动进入可点上方按钮)",
+                              font=("Microsoft YaHei UI", 8),
+                              foreground=TEXT_SECONDARY, background=BG)
+        auto_note.pack(pady=(6, 0))
 
         self._lbl_welcome_error = ttk.Label(center, text="", foreground=DANGER, background=BG,
                                             font=("Microsoft YaHei UI", 9))
@@ -84,7 +90,7 @@ class ScreenMixin:
         self._lbl_loading_pct.pack(pady=(0, 8))
 
         # 日志区域
-        log_frame = ttk.Frame(center, style="Card.TFrame")
+        log_frame = ttk.Frame(center, style="CardBox.TFrame")
         log_frame.pack(fill="both", expand=True)
         self._loading_log = scrolledtext.ScrolledText(
             log_frame, height=10, font=("Consolas", 9),
@@ -106,7 +112,7 @@ class ScreenMixin:
         frame = ttk.Frame(self.root)
 
         # 顶部栏
-        topbar = ttk.Frame(frame, style="Card.TFrame")
+        topbar = ttk.Frame(frame, style="CardBox.TFrame")
         topbar.pack(fill="x", padx=0, pady=0)
 
         top_inner = ttk.Frame(topbar, style="Card.TFrame")
@@ -220,6 +226,15 @@ class ScreenMixin:
         self._time_end.pack(side="left")
         self._time_end.insert(0, self._config.get("time_end", ""))
         ttk.Label(time_row, text="  留空 = 全部", foreground=TEXT_SECONDARY, style="Card.TLabel").pack(side="left")
+
+        # 导出条数（最近 N 条）
+        limit_row = ttk.Frame(export_card, style="Card.TFrame")
+        limit_row.pack(fill="x", pady=2)
+        ttk.Label(limit_row, text="导出条数:", width=10, anchor="e", style="Card.TLabel").pack(side="left")
+        self._msg_limit = ttk.Combobox(limit_row, values=["全部", "最近 10 条", "最近 50 条", "最近 100 条"],
+                                       state="readonly", width=14)
+        self._msg_limit.pack(side="left", padx=(4, 0))
+        self._msg_limit.set(self._config.get("msg_limit", "最近 50 条"))
 
         # 输出目录
         out_row = ttk.Frame(export_card, style="Card.TFrame")

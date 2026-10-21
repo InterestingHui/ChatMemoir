@@ -51,10 +51,11 @@ class DocxExporter(ExporterBase):
             group_members: set[str] = None,  # 群聊中只导出这些人的聊天记录
             progress_callback=None,  # 进度回调函数，func(progress:float)
             finish_callback=None,  # 导出完成回调函数
-            msg_num_per_docx=500  # 每个docx文档的消息数量
+            msg_num_per_docx=500,  # 每个docx文档的消息数量
+            msg_limit=None  # 只导出最近 N 条消息（None/0 = 全部）
     ):
         super().__init__(database, contact, output_dir, type_, message_types, time_range, group_members,
-                         progress_callback, finish_callback)  # 调用父类的构造函数
+                         progress_callback, finish_callback, msg_limit)  # 调用父类的构造函数
         self.msg_num_per_docx = msg_num_per_docx
 
     def add_text_in(self, paragraph, content):
@@ -274,7 +275,7 @@ class DocxExporter(ExporterBase):
     def export(self):
         print(f"【开始导出 DOCX {self.contact.remark}】")
         origin_path = self.origin_path
-        messages = self.database.get_messages(self.contact.uid, time_range=self.time_range)
+        messages = self.get_export_messages()
         total_steps = len(messages)
         self.save_avatars()
 

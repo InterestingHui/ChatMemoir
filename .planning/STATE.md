@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 Phase: 03
 Plan: Not started
 Status: Executing Phase 02
-Last activity: 2026-06-29 - Completed quick task 260629-v3a: v4 流水线合成 DB 集成测试
+Last activity: 2026-08-31 - Completed quick task 260831-54g: 解密刷新增量优化（逐页 HMAC 同步 + key 缓存 + 1MB 缓冲 IO）
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -83,6 +83,7 @@ None yet.
 | 260629-urj | GUI 进度条修复端到端集成测试 | 2026-06-29 | 10d1722 | [260629-urj-gui-testautodecryptprogressflow-mock-aut](./quick/260629-urj-gui-testautodecryptprogressflow-mock-aut/) |
 | 260629-v3a | v4 流水线合成 DB 集成测试（联系人→消息→导出） | 2026-06-29 | ffc4226 | [260629-v3a-v4-db-contact-db-message-0-db-info-json-](./quick/260629-v3a-v4-db-contact-db-message-0-db-info-json-/) |
 | 260826-5h3 | GUI 加载当前登录微信账号（WSL 回退路径） | 2026-08-26 | 23ff2ce | [260826-5h3-fix-gui-stale-account-loading](./quick/260826-5h3-fix-gui-stale-account-loading/) |
+| 260831-54g | 解密刷新增量优化（逐页 HMAC 同步 + key 缓存 + 1MB 缓冲 IO） | 2026-08-31 | 5c2326e | [260831-54g-decrypt-refresh-incremental-page-level-h](./quick/260831-54g-decrypt-refresh-incremental-page-level-h/) |
 
 ## Session Continuity
 

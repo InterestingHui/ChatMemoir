@@ -21,7 +21,7 @@ class TxtExporter(ExporterBase):
         safe_makedirs(origin_path)
         filename = os.path.join(origin_path, self.contact.remark + '.txt')
         filename = get_new_filename(filename)
-        messages = self.database.get_messages(self.contact.uid, time_range=self.time_range)
+        messages = self.get_export_messages()
         total_steps = len(messages)
         txt_res = []
         for index, message in enumerate(messages):

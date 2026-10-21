@@ -92,7 +92,8 @@ class ExporterBase(ExporterBaseBase):
             time_range=None,  # 导出的日期范围
             group_members: set[str] = None,  # 群聊中只导出这些人的聊天记录
             progress_callback=None,  # 进度回调函数，func(progress:float)
-            finish_callback=None  # 导出完成回调函数
+            finish_callback=None,  # 导出完成回调函数
+            msg_limit=None,  # 只导出最近 N 条消息（None/0 = 全部）
     ):
         """
         @param database:
@@ -103,6 +104,7 @@ class ExporterBase(ExporterBaseBase):
         @param time_range: 导出的日期范围
         @param group_members: 群聊中筛选的群成员
         @param progress_callback: 导出进度回调函数
+        @param msg_limit: 只导出最近 N 条消息（None/0 = 全部；有 time_range 时先按时间过滤再取尾部 N 条）
         """
         super().__init__()
         if progress_callback:
@@ -128,8 +130,29 @@ class ExporterBase(ExporterBaseBase):
         self.group_contacts = {}  # 群聊里的所有联系人
         self.group_members = group_members  # 要导出的群聊成员（用于群消息筛选）
         self.group_members_set = group_members
+        self.msg_limit = msg_limit  # 只导出最近 N 条（None/0 = 全部）
         self.origin_path = os.path.join(output_dir, '聊天记录', f'{self.contact.remark}({self.contact.uid})')
         makedirs(self.origin_path)
+
+    def get_export_messages(self):
+        """
+        统一取数入口：所有导出格式共用。
+        - 无 msg_limit：与旧行为完全一致（get_messages + time_range）。
+        - 有 msg_limit：取最近 N 条（时间升序返回）。
+          组合 time_range 时，语义为"该时间范围内的最后 N 条"——数据库层
+          get_messages_by_num 不支持时间过滤，这里拉取时间范围内的全部消息后
+          截取尾部 N 条（时间范围本身已收敛数据量，开销可控）。
+        """
+        if not self.msg_limit or int(self.msg_limit) <= 0:
+            return self.database.get_messages(self.contact.uid, time_range=self.time_range)
+        limit = int(self.msg_limit)
+        if self.time_range:
+            messages = self.database.get_messages(self.contact.uid, time_range=self.time_range)
+            return messages[-limit:] if limit < len(messages) else messages
+        # 无时间范围：走 SQL 层分页取数（避免全量解析大聊天记录）。
+        # get_messages_by_num 返回降序（最新在前，GUI 分页用），导出需要时间升序 → 反转。
+        messages, _ = self.database.get_messages_by_num(self.contact.uid, 1 << 62, limit)
+        return messages[::-1]
 
     def print_progress(self, progress):
         logger.info(f'导出进度：{progress * 100:.2f}%')

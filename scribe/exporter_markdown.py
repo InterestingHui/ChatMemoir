@@ -141,7 +141,7 @@ class MarkdownExporter(ExporterBase):
         origin_path = self.origin_path
         safe_makedirs(origin_path)
         filename = os.path.join(origin_path, self.contact.remark + '.md')
-        messages = self.database.get_messages(self.contact.uid, time_range=self.time_range)
+        messages = self.get_export_messages()
         total_steps = len(messages)
         num = 1
         years = set()

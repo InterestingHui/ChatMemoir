@@ -1,4 +1,5 @@
 import hmac
+import json
 import os
 import stat
 import struct
@@ -28,7 +29,12 @@ def _sync_pages_incremental(pkey, in_db_path, out_db_path):
 
     ponytail: 解密输出的每页尾巴与密文源逐字节相同（页 0 只把前 16B salt 换成
     SQLite 头，尾巴在 80B reserve 区原样拷贝），所以尾巴相同 ⇔ 该页密文未变 —
-    免 AES、免 HMAC、免写入，只多花一次本地 dst 随机读。
+    免 AES、免 HMAC、免写入。
+
+    ponytail 2026-10-18: dst 改为顺序大块读 + 内存切页。此前对 dst 每页做
+    seek+read(4KB)，9p/ext4 上 29.6 万页随机读实测 42.5s/库（GUI 卡"media_1.db"
+    假死的元凶）；顺序读同库只要 ~3s。src 侧 f_in 本身带 1MB 缓冲，逐页 read
+    实际也是大块读，保持不变。
     """
     src_size = os.path.getsize(in_db_path)
     if not os.path.exists(out_db_path):
@@ -45,8 +51,11 @@ def _sync_pages_incremental(pkey, in_db_path, out_db_path):
 
     changed = 0
     # ponytail: 1MB 读缓冲 — 9p(/mnt/c) 上默认 8KB 缓冲的逐页读实测只有
-    # ~10MB/s，1MB 块读 ~141MB/s；改缓冲不改语义
-    with open(in_db_path, 'rb', buffering=1 << 20) as f_in, open(out_db_path, 'r+b') as f_out:
+    # ~10MB/s，1MB 块读 ~141MB/s；改缓冲不改语义。
+    # f_dst 只读顺序流用于比对；f_out (r+b) 单独持有，仅在页变化时写。
+    with open(in_db_path, 'rb', buffering=1 << 20) as f_in, \
+            open(out_db_path, 'rb', buffering=1 << 20) as f_dst, \
+            open(out_db_path, 'r+b') as f_out:
         salt = f_in.read(SALT_SIZE)
         if not salt:
             return None  # 空文件，落回全量路径报错
@@ -57,6 +66,8 @@ def _sync_pages_incremental(pkey, in_db_path, out_db_path):
 
         dst_page_count = dst_size // PAGE_SIZE
         cur_page = 0
+        dst_buf = b''
+        dst_buf_start = 0  # dst_buf 里第一页对应的全局页号
         while True:
             # 与全量路径相同的顺序读法（9p 随机 seek 极慢，保持顺序流）
             if cur_page == 0:
@@ -71,11 +82,18 @@ def _sync_pages_incremental(pkey, in_db_path, out_db_path):
             offset = SALT_SIZE if cur_page == 0 else 0
             end = len(page)
 
-            # 已有页且尾巴相同 → 密文未变，跳过
+            # 已有页且尾巴相同 → 密文未变，跳过。
+            # dst 侧顺序大块读 + 内存切页（消灭每页 seek 的随机读）。
             if cur_page < dst_page_count:
-                f_out.seek(cur_page * PAGE_SIZE)
-                dst_page = f_out.read(PAGE_SIZE)
-                if dst_page[end - reserve:] == page[end - reserve:]:
+                if not dst_buf or cur_page >= dst_buf_start + len(dst_buf) // PAGE_SIZE:
+                    dst_buf_start = cur_page
+                    dst_buf = f_dst.read(1 << 20)
+                    if not dst_buf:
+                        dst_buf = b''
+                        return None  # dst 比预期短，异常 → 全量路径兜底
+                in_buf = cur_page - dst_buf_start
+                dst_page = dst_buf[in_buf * PAGE_SIZE:(in_buf + 1) * PAGE_SIZE]
+                if len(dst_page) == PAGE_SIZE and dst_page[end - reserve:] == page[end - reserve:]:
                     cur_page += 1
                     continue
 
@@ -108,7 +126,6 @@ def _sync_pages_incremental(pkey, in_db_path, out_db_path):
             f_out.write(page[end - reserve:end])
             changed += 1
             cur_page += 1
-
         # 追加页时对齐最终大小；尺寸已一致时跳过 truncate，避免无谓触碰 mtime
         final_size = cur_page * PAGE_SIZE
         if final_size != dst_size:
@@ -245,6 +262,21 @@ def decrypt_db_files(key, src_dir: str, dest_dir: str, key_map: dict = None,
     if not os.path.exists(dest_dir):
         os.makedirs(dest_dir)
 
+    # 同步清单：src (size, mtime_ns) 与上次成功同步时一致 → dst 必然已是最新，
+    # 直接跳过页级扫描（微信未写库时整轮刷新从 ~97s 降到毫秒级）。
+    # ponytail 2026-10-18: 仅 9p 源（/mnt/c）下启用 —— mtime 粒度与可靠性已实测
+    # 足够（9p stat 直通 NTFS）；本地 ext4→ext4 场景保持原逻辑不变。
+    manifest_path = os.path.join(os.path.dirname(dest_dir.rstrip(os.sep)) or dest_dir, 'sync_manifest.json')
+    manifest = {}
+    try:
+        _m = json.load(open(manifest_path, 'r', encoding='utf-8'))
+        if isinstance(_m, dict):
+            manifest = _m
+    except Exception:
+        manifest = {}
+    manifest_dirty = False
+    on_9p = src_dir.startswith('/mnt/')
+
     # Collect unique keys to try for fallback
     all_keys = set()
     if key_map:
@@ -276,6 +308,12 @@ def decrypt_db_files(key, src_dir: str, dest_dir: str, key_map: dict = None,
                     if dst_size < PAGE_SIZE:
                         pass  # corrupt stub, re-decrypt
                     else:
+                        src_stat = os.stat(src_file_path)
+                        sig = f'{src_stat.st_size}:{src_stat.st_mtime_ns}'
+                        rel_key = os.path.join(relative_path, file)
+                        if on_9p and manifest.get(rel_key) == sig:
+                            skipped += 1
+                            continue
                         src_mtime = os.path.getmtime(src_file_path)
                         dst_mtime = os.path.getmtime(dest_file_path)
                         if src_mtime <= dst_mtime:
@@ -335,8 +373,30 @@ def decrypt_db_files(key, src_dir: str, dest_dir: str, key_map: dict = None,
         completed += 1
         if result is not True:
             failed += 1
+        else:
+            # 成功同步 → 记录 src 签名，下次直接短路。after 取自解密后重新 stat，
+            # 撕裂读场景 after 会变化，下次仍会重扫。
+            # ponytail: 直接用 st_mtime_ns —— 浮点秒 ×1e9 在 9p 上有精度损失
+            # （末几位不一致导致清单永不命中，实测踩过）。
+            # 微信在解密期间仍在写库（after != before）→ 不记清单，这轮的快照
+            # 落后于源，下一轮 mtime 不同自然重扫（活跃库每轮重扫是预期语义）。
+            try:
+                if before == after:
+                    _final = os.stat(src_file_path)
+                    rel_key = os.path.relpath(src_file_path, src_dir)
+                    manifest[rel_key] = f'{_final.st_size}:{_final.st_mtime_ns}'
+                    manifest_dirty = True
+            except OSError:
+                pass
         if progress_callback:
             progress_callback(completed, total, os.path.basename(dest_file_path))
+
+    if manifest_dirty:
+        try:
+            with open(manifest_path, 'w', encoding='utf-8') as f:
+                json.dump(manifest, f, ensure_ascii=False)
+        except OSError as e:
+            logger.info(f"同步清单写入失败（不影响解密结果）: {e!r}")
 
     if failed:
         logger.info(f"警告: {failed}/{total} 个数据库解密失败")

@@ -47,7 +47,7 @@ class HtmlExporter(ExporterBase):
         html_head = html_head.replace("{{avatarUrls}}", json.dumps(avatar_urls)).replace('{{uid}}',
                                                                                          f'"{self.contact.uid}"')
         f.write(html_head)
-        messages = self.database.get_messages(self.contact.uid, time_range=self.time_range)
+        messages = self.get_export_messages()
 
         # QMe().save_avatar(self.origin_path + '/avatar/' + Me().uid + '.png')
         # self.contact.save_avatar(self.origin_path + '/avatar/' + self.contact.uid + '.png')

@@ -23,8 +23,11 @@ def export():
 
     # ponytail: db_dir and target uid from argv so the script works for any
     # decrypted account. Defaults preserve old behavior.
+    # argv: [prog, <db_dir>, <uid>, <msg_limit>]；msg_limit 可选，数字=只导出最近N条（默认50），'all'=全部
     db_dir = sys.argv[1] if len(sys.argv) > 1 else 'decrypted/wxid_ka89oj7i1mz622/db_storage'
     uid = sys.argv[2] if len(sys.argv) > 2 else None  # required: target friend wxid
+    limit_arg = sys.argv[3] if len(sys.argv) > 3 else '50'
+    msg_limit = None if str(limit_arg).lower() in ('all', '0', '') else int(limit_arg)
     db_version = 4
     output_dir = './data/'  # 输出文件夹
 
@@ -53,7 +56,8 @@ def export():
         type_=FileType.TXT,
         message_types=None,  # 要导出的消息类型，默认全导出
         time_range=['2020-01-01 00:00:00', '2035-03-12 00:00:00'],  # 要导出的日期范围，默认全导出
-        group_members=None  # 指定导出群聊里某个或者几个群成员的聊天记录
+        group_members=None,  # 指定导出群聊里某个或者几个群成员的聊天记录
+        msg_limit=msg_limit,  # 只导出最近 N 条（None/0 = 全部）
     )
 
     scribe.start()
@@ -153,6 +157,7 @@ def batch_export_by_fmt():
 if __name__ == '__main__':
     freeze_support()
     # Default: export single friend (uid from argv[2], or list contacts if absent).
+    # argv[3] = msg_limit: 数字=最近N条（默认50），'all'=全部
     # Use 'batch' as argv[1] to batch-export all contacts as HTML.
     if len(sys.argv) > 1 and sys.argv[1] == 'batch':
         batch_export()

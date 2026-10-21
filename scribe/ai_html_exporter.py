@@ -118,7 +118,7 @@ class AiHtmlExporter(ExporterBase):
         filename = os.path.join(self.origin_path, f"{name}_AI整理_{tag}.html")
         filename = get_new_filename(filename)
 
-        messages = self.database.get_messages(self.contact.uid, time_range=self.time_range)
+        messages = self.get_export_messages()
         selected = [m for m in messages if self.is_selected(m)]
         total_steps = max(len(selected), 1)
 
